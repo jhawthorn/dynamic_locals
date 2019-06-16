@@ -6,6 +6,7 @@ module DynamicLocals
       super
 
       @replacements = []
+      @assigned_locals = []
 
       root = RubyVM::AbstractSyntaxTree.parse(original_src)
       find_replacements(root)
@@ -24,7 +25,11 @@ module DynamicLocals
         src[range] = rewrite
       end
 
-      src
+      initialize = @assigned_locals.sort.uniq.map do |local|
+        "#{local} = #{locals_hash}[#{local.inspect}];"
+      end.join
+
+      "#{initialize}#{src}"
     end
 
     private
@@ -83,16 +88,12 @@ module DynamicLocals
         node.children.each { |child| find_replacements(child)  }
 
         name = node.children[0].children[0]
-        preface = "#{name} = #{locals_hash}[#{name.inspect}]"
-        preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end;"
-        insert_before node, preface
+        @assigned_locals << name
       elsif node.type == :LASGN
         node.children.each { |child| find_replacements(child)  }
 
         name = node.children[0]
-        preface = "#{name} = #{locals_hash}[#{name.inspect}]"
-        preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end;"
-        insert_before node, preface
+        @assigned_locals << name
       else
         node.children.each { |child| find_replacements(child)  }
       end

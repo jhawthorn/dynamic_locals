@@ -68,6 +68,10 @@ module CommonBehaviour
 
   def test_assignment_with_existing_value
     assert_dynamic_result(123, "foo = foo + 100", { foo: 23 })
+    assert_dynamic_result(123, "foo += 100", { foo: 23 })
+
+    assert_dynamic_result(123, "foo = nil if false; foo", { foo: 123 })
+    assert_dynamic_result(123, "if false; foo = nil; end; foo", { foo: 123 })
   end
 
   def test_multiline_rewrites
