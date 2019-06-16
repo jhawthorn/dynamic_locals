@@ -40,14 +40,20 @@ module DynamicLocals
 
     def find_rewrites(node)
       return [] unless RubyVM::AbstractSyntaxTree::Node === node
-      return [] if node.type == :DEFINED
-      rewrites = node.children.flat_map { |child| find_rewrites(child)  }
+      locals_hash = :locals # FIXME
       if node.type == :VCALL
+        rewrites = node.children.flat_map { |child| find_rewrites(child)  }
+
         name = node.children[0]
-        replacement = "locals.fetch(#{name.inspect}){ #{name}() }"
+        replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
         rewrites << [node, replacement]
+      elsif node.type == :DEFINED && node.children[0].type == :VCALL
+        name = node.children[0].children[0]
+        replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
+        [[node, replacement]]
+      else
+        node.children.flat_map { |child| find_rewrites(child)  }
       end
-      rewrites
     end
   end
 end

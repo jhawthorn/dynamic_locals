@@ -90,5 +90,4 @@ class RewriteTranslatorTest < Minitest::Test
   Implementation = DynamicLocals::RewriteTranslator
 
   skip :test_or_assignment_with_value
-  skip :test_defined
 end
