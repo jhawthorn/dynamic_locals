@@ -59,7 +59,6 @@ module CommonBehaviour
   end
 
   def test_or_assignment_with_value
-    skip "wip"
     assert_dynamic_result(123, "foo ||= :default; foo", { foo: 123 })
   end
 end
@@ -72,4 +71,6 @@ end
 class RewriteTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::RewriteTranslator
+
+  skip :test_or_assignment_with_value
 end
