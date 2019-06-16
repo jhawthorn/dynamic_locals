@@ -28,7 +28,7 @@ c.new.run({ foo: "from local" })
 
 ActionView has the interesting quality that the local variables defined within a template are defined by the caller.
 
-```
+``` ruby
 <%= render partial: "some_template", locals: { foo: "bar" } %>
 ```
 
