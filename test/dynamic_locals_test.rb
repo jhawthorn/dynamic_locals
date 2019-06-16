@@ -38,12 +38,38 @@ module CommonBehaviour
     assert_dynamic_result(:hi_from_my_method, "my_method_name()", { my_method_name: :a_local })
   end
 
+  def test_method_call_self
+    assert_dynamic_result(:hi_from_my_method, "self.my_method_name", { my_method_name: :a_local })
+  end
+
   def test_method_call_block
     assert_dynamic_result(:hi_from_my_method, "my_method_name {}", { my_method_name: :a_local })
+  end
+
+  def test_variable_assignment
+    assert_dynamic_result(123, "foo = 123; foo", { foo: 123 })
+  end
+
+  def test_or_assignment_undefined
+    assert_dynamic_result(:default, "foo ||= :default; foo", {})
+  end
+
+  def test_or_assignment_nil
+    assert_dynamic_result(:default, "foo ||= :default; foo", { foo: nil })
+  end
+
+  def test_or_assignment_with_value
+    skip "wip"
+    assert_dynamic_result(123, "foo ||= :default; foo", { foo: 123 })
   end
 end
 
 class EvalTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::EvalTranslator
+end
+
+class RewriteTranslatorTest < Minitest::Test
+  include CommonBehaviour
+  Implementation = DynamicLocals::RewriteTranslator
 end
