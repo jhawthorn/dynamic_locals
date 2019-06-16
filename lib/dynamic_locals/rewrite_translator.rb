@@ -2,7 +2,7 @@ module DynamicLocals
   module RewriteTranslator
     extend self
 
-    def translate(original_src)
+    def translate(original_src, locals_hash: :locals)
       root = RubyVM::AbstractSyntaxTree.parse(original_src)
       vcalls = extract_vcalls(root)
 
@@ -20,7 +20,7 @@ module DynamicLocals
         name = vcall.children[0]
         range = range_from(line_offsets, vcall)
         original = src[range]
-        src[range] = "locals.fetch(#{name.inspect}){ #{name}() }"
+        src[range] = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
       end
 
       src
