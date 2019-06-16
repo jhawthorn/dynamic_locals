@@ -37,6 +37,17 @@ Because method calls with no arguments look the same as local variable accesses,
 
 ActionView currently solves this by compiling a separate template for each set of local variable names passed in. This wastes memory by duplicating the template for every set of locals being passed in and also prevents templates from being compiled at boot, since we don't know what locals they will be given.
 
+## How?
+
+The basic mechanism is to replace all ambiguous access a hash fetch falling back to an unambiguous method call:
+
+``` ruby
+locals.fetch(:foobar) { foobar() }
+```
+
+This introduces a number of corner cases (see tests for many examples), which this also tries to work around.
+The goal of this is for Ruby's behaviour to be unchanged and not to leak this "optimization".
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
