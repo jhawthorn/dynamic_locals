@@ -3,23 +3,16 @@ require "dynamic_locals/base_translator"
 module DynamicLocals
   class RewriteTranslator < BaseTranslator
     def translate
-      line_offsets = [0]
-      idx = 0
-      while idx = original_src.index("\n", idx)
-        idx += 1
-        line_offsets << idx
-      end
-
       root = RubyVM::AbstractSyntaxTree.parse(original_src)
       rewrites = find_rewrites(root)
       rewrites =
         rewrites.sort_by do |node, replacement|
-          range_from(line_offsets, node).end
+          range_from(node).end
         end.reverse
 
       src = original_src.dup
       rewrites.each do |node, rewrite|
-        range = range_from(line_offsets, node)
+        range = range_from(node)
         src[range] = rewrite
       end
 
@@ -28,13 +21,26 @@ module DynamicLocals
 
     private
 
-    def position_from(line_offsets, line, column)
+    def line_offsets
+      @line_offsets ||=
+        begin
+          line_offsets = [0]
+          idx = 0
+          while idx = original_src.index("\n", idx)
+            idx += 1
+            line_offsets << idx
+          end
+          line_offsets
+        end
+    end
+
+    def position_from(line, column)
       line_offsets[line-1] + column
     end
 
-    def range_from(line_offsets, node)
-      first = position_from(line_offsets, node.first_lineno, node.first_column)
-      last  = position_from(line_offsets, node.last_lineno, node.last_column)
+    def range_from(node)
+      first = position_from(node.first_lineno, node.first_column)
+      last  = position_from(node.last_lineno, node.last_column)
       first...last
     end
 
