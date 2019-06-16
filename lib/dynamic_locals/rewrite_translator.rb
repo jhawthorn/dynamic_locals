@@ -2,17 +2,25 @@ require "dynamic_locals/base_translator"
 
 module DynamicLocals
   class RewriteTranslator < BaseTranslator
+    def initialize(*args)
+      super
+
+      @replacements = []
+
+      root = RubyVM::AbstractSyntaxTree.parse(original_src)
+      find_replacements(root)
+    end
+
     def translate
       root = RubyVM::AbstractSyntaxTree.parse(original_src)
-      rewrites = find_rewrites(root)
+      rewrites = @replacements
       rewrites =
-        rewrites.sort_by do |node, replacement|
-          range_from(node).end
+        rewrites.sort_by do |range, replacement|
+          range.end
         end.reverse
 
       src = original_src.dup
-      rewrites.each do |node, rewrite|
-        range = range_from(node)
+      rewrites.each do |range, rewrite|
         src[range] = rewrite
       end
 
@@ -48,26 +56,31 @@ module DynamicLocals
       @original_src[range_from(node)]
     end
 
-    def find_rewrites(node)
-      return [] unless RubyVM::AbstractSyntaxTree::Node === node
+    def add_replacement(node, replacement)
+      range = range_from(node)
+      @replacements << [range, replacement]
+    end
+
+    def find_replacements(node)
+      return unless RubyVM::AbstractSyntaxTree::Node === node
       if node.type == :VCALL
-        rewrites = node.children.flat_map { |child| find_rewrites(child)  }
+        rewrites = node.children.each { |child| find_replacements(child)  }
 
         name = node.children[0]
         replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
-        rewrites << [node, replacement]
+        add_replacement node, replacement
       elsif node.type == :DEFINED && node.children[0].type == :VCALL
         name = node.children[0].children[0]
         replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
-        [[node, replacement]]
+        add_replacement node, replacement
       elsif node.type == :OP_ASGN_OR && node.children[0].type == :LVAR
         name = node.children[0].children[0]
         preface = "#{name} = #{locals_hash}[#{name.inspect}]"
         preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end"
         replacement = "#{preface};#{original_src_of(node)}"
-        [[node, replacement]]
+        add_replacement node, replacement
       else
-        node.children.flat_map { |child| find_rewrites(child)  }
+        node.children.each { |child| find_replacements(child)  }
       end
     end
   end
