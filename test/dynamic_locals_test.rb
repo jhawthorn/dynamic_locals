@@ -90,6 +90,12 @@ module CommonBehaviour
     assert_dynamic_result("method", "defined?(my_method_name)", { })
     assert_dynamic_result("local-variable", "defined?(my_method_name)", { my_method_name: 123 })
   end
+
+  def test_binding
+    assert_dynamic_result(true, "binding.local_variables.include?(:foo)", { foo: 123 })
+    assert_dynamic_result(123, "binding.local_variable_get(:foo)", { foo: 123 })
+    assert_dynamic_result(123, "binding.eval('foo')", { foo: 123 })
+  end
 end
 
 class EvalTranslatorTest < Minitest::Test

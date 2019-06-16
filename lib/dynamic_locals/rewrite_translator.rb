@@ -74,7 +74,11 @@ module DynamicLocals
 
     def find_replacements(node)
       return unless RubyVM::AbstractSyntaxTree::Node === node
-      if node.type == :VCALL
+      if node.type == :VCALL && node.children == [:binding]
+        # Assumes binding isn't a local and isn't overridden
+        replacement = "(_binding = binding; #{locals_hash}.each { |k,v| _binding.local_variable_set(k, v) }; _binding)"
+        add_replacement node, replacement
+      elsif node.type == :VCALL
         node.children.each { |child| find_replacements(child)  }
 
         name = node.children[0]
