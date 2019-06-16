@@ -8,7 +8,7 @@ module DynamicLocals
   module EvalTranslator
     extend self
 
-    def self.translate(src)
+    def translate(src)
       %{eval(locals.map { |k, v| "\#{k} = \#{v.inspect};" }.join + #{src.inspect})}
     end
   end
