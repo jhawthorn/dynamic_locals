@@ -44,6 +44,10 @@ module DynamicLocals
       first...last
     end
 
+    def original_src_of(node)
+      @original_src[range_from(node)]
+    end
+
     def find_rewrites(node)
       return [] unless RubyVM::AbstractSyntaxTree::Node === node
       if node.type == :VCALL
@@ -55,6 +59,12 @@ module DynamicLocals
       elsif node.type == :DEFINED && node.children[0].type == :VCALL
         name = node.children[0].children[0]
         replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
+        [[node, replacement]]
+      elsif node.type == :OP_ASGN_OR && node.children[0].type == :LVAR
+        name = node.children[0].children[0]
+        preface = "#{name} = #{locals_hash}[#{name.inspect}]"
+        preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end"
+        replacement = "#{preface};#{original_src_of(node)}"
         [[node, replacement]]
       else
         node.children.flat_map { |child| find_rewrites(child)  }
