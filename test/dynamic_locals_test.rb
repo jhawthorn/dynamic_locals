@@ -8,7 +8,7 @@ end
 
 module CommonBehaviour
   def assert_dynamic_result(expected, src, locals={})
-    dynamic = self.class::Implementation.translate(src)
+    dynamic = self.class::Implementation.new(src).translate
     dynamic = "locals = (#{locals.inspect});#{dynamic}"
     actual = eval(dynamic)
     assert expected == actual, "Expected #{actual.inspect} to equal #{expected.inspect}"

@@ -1,8 +1,8 @@
-module DynamicLocals
-  module RewriteTranslator
-    extend self
+require "dynamic_locals/base_translator"
 
-    def translate(original_src, locals_hash: :locals)
+module DynamicLocals
+  class RewriteTranslator < BaseTranslator
+    def translate
       line_offsets = [0]
       idx = 0
       while idx = original_src.index("\n", idx)
@@ -40,7 +40,6 @@ module DynamicLocals
 
     def find_rewrites(node)
       return [] unless RubyVM::AbstractSyntaxTree::Node === node
-      locals_hash = :locals # FIXME
       if node.type == :VCALL
         rewrites = node.children.flat_map { |child| find_rewrites(child)  }
 

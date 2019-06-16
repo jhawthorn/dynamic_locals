@@ -1,4 +1,5 @@
 require "dynamic_locals/version"
+require "dynamic_locals/base_translator"
 require "dynamic_locals/eval_translator"
 require "dynamic_locals/rewrite_translator"
 
@@ -7,7 +8,7 @@ module DynamicLocals
 
   DefaultImplementation = RewriteTranslator
 
-  def self.translate(src)
-    DefaultImplementation.translate(src)
+  def self.translate(*args)
+    DefaultImplementation.new(*args).translate
   end
 end
