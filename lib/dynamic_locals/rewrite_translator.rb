@@ -61,10 +61,16 @@ module DynamicLocals
       @replacements << [range, replacement]
     end
 
+    def insert_before(node, preface)
+      start = range_from(node).begin
+      range = start...start
+      @replacements << [range, preface]
+    end
+
     def find_replacements(node)
       return unless RubyVM::AbstractSyntaxTree::Node === node
       if node.type == :VCALL
-        rewrites = node.children.each { |child| find_replacements(child)  }
+        node.children.each { |child| find_replacements(child)  }
 
         name = node.children[0]
         replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
@@ -74,11 +80,12 @@ module DynamicLocals
         replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
         add_replacement node, replacement
       elsif node.type == :OP_ASGN_OR && node.children[0].type == :LVAR
+        node.children.each { |child| find_replacements(child)  }
+
         name = node.children[0].children[0]
         preface = "#{name} = #{locals_hash}[#{name.inspect}]"
-        preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end"
-        replacement = "#{preface};#{original_src_of(node)}"
-        add_replacement node, replacement
+        preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end;"
+        insert_before node, preface
       else
         node.children.each { |child| find_replacements(child)  }
       end

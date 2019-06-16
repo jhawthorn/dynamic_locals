@@ -63,6 +63,7 @@ module CommonBehaviour
     assert_dynamic_result(123, "foo ||= :default; foo", { foo: 123 })
     assert_dynamic_result(123, "foo = 123; foo ||= :default; foo")
     assert_dynamic_result(123, "foo = 123; foo ||= :default; foo", { foo: 0 })
+    assert_dynamic_result(123, "foo ||= bar", { bar: 123 })
   end
 
   def test_multiline_rewrites
