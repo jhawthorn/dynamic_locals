@@ -2,15 +2,6 @@ module DynamicLocals
   module RewriteTranslator
     extend self
 
-    def extract_vcalls(node)
-      return [] unless RubyVM::AbstractSyntaxTree::Node === node
-      vars = node.children.flat_map { |child| extract_vcalls(child)  }
-      if node.type == :VCALL
-        vars << node
-      end
-      vars
-    end
-
     def translate(original_src)
       root = RubyVM::AbstractSyntaxTree.parse(original_src)
       vcalls = extract_vcalls(root)
@@ -25,6 +16,17 @@ module DynamicLocals
       end
 
       src
+    end
+
+    private
+
+    def extract_vcalls(node)
+      return [] unless RubyVM::AbstractSyntaxTree::Node === node
+      vars = node.children.flat_map { |child| extract_vcalls(child)  }
+      if node.type == :VCALL
+        vars << node
+      end
+      vars
     end
   end
 end
