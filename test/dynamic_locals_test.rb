@@ -11,7 +11,7 @@ module CommonBehaviour
     dynamic = self.class::Implementation.translate(src)
     dynamic = "locals = (#{locals.inspect});#{dynamic}"
     actual = eval(dynamic)
-    assert_equal expected, actual, "Expected #{actual.inspect} to equal #{expected.inspect}"
+    assert expected == actual, "Expected #{actual.inspect} to equal #{expected.inspect}"
   end
 
   def my_method_name
