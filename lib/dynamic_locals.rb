@@ -11,4 +11,9 @@ module DynamicLocals
   def self.translate(*args)
     DefaultImplementation.new(*args).translate
   end
+
+  # This is intended for convenience debugging purposes
+  def self.compile(*args)
+    eval("-> (locals = {}) { #{translate(*args)} }")
+  end
 end
