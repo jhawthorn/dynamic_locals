@@ -1,28 +1,41 @@
 # DynamicLocals
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/dynamic_locals`. To experiment with that code, run `bin/console` for an interactive prompt.
+This is an experimental Ruby to Ruby transpiler which swaps out the functionality of local variables, allowing them to be dynamically defined.
 
-TODO: Delete this and the text above, and describe your gem
-
-## Installation
-
-Add this line to your application's Gemfile:
-
-```ruby
-gem 'dynamic_locals'
-```
-
-And then execute:
-
-    $ bundle
-
-Or install it yourself as:
-
-    $ gem install dynamic_locals
+This is a proof of concept and shouldn't be used yet.
 
 ## Usage
 
-TODO: Write usage instructions here
+``` ruby
+c = Class.new do
+  def foo
+    "from method"
+  end
+end
+
+src = DynamicLocals.translate("foo")
+# => "locals.fetch(:foo) { foo() }"
+
+c.class_eval("def run(locals); #{src}; end")
+
+c.new.run({})
+#=> "from method"
+c.new.run({ foo: "from local" })
+#=> "from local"
+```
+
+## Why?
+
+ActionView has the interesting quality that the local variables defined within a template are defined by the caller.
+
+```
+<%= render partial: "some_template", locals: { foo: "bar" } %>
+```
+
+This is tricky, because local variables are determined by Ruby at compile time.
+Because method calls with no arguments look the same as local variable accesses, it's ambiguous which they are. Ruby determines between calls and locals by checking if the local is being assigned to at
+
+ActionView currently solves this by compiling a separate template for each set of local variable names passed in. This wastes memory by duplicating the template for every set of locals being passed in and also prevents templates from being compiled at boot, since we don't know what locals they will be given.
 
 ## Development
 
