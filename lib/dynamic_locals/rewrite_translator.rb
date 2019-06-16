@@ -3,9 +3,6 @@ module DynamicLocals
     extend self
 
     def translate(original_src, locals_hash: :locals)
-      root = RubyVM::AbstractSyntaxTree.parse(original_src)
-      vcalls = extract_vcalls(root)
-
       line_offsets = [0]
       idx = 0
       while idx = original_src.index("\n", idx)
@@ -13,14 +10,17 @@ module DynamicLocals
         line_offsets << idx
       end
 
-      vcalls = vcalls.sort_by { |x| range_from(line_offsets, x).end }.reverse
+      root = RubyVM::AbstractSyntaxTree.parse(original_src)
+      rewrites = find_rewrites(root)
+      rewrites =
+        rewrites.sort_by do |node, replacement|
+          range_from(line_offsets, node).end
+        end.reverse
 
       src = original_src.dup
-      vcalls.each do |vcall|
-        name = vcall.children[0]
-        range = range_from(line_offsets, vcall)
-        original = src[range]
-        src[range] = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
+      rewrites.each do |node, rewrite|
+        range = range_from(line_offsets, node)
+        src[range] = rewrite
       end
 
       src
@@ -38,12 +38,14 @@ module DynamicLocals
       first...last
     end
 
-    def extract_vcalls(node)
+    def find_rewrites(node)
       return [] unless RubyVM::AbstractSyntaxTree::Node === node
       return [] if node.type == :DEFINED
-      vars = node.children.flat_map { |child| extract_vcalls(child)  }
+      vars = node.children.flat_map { |child| find_rewrites(child)  }
       if node.type == :VCALL
-        vars << node
+        name = node.children[0]
+        replacement = "locals.fetch(#{name.inspect}){ #{name}() }"
+        vars << [node, replacement]
       end
       vars
     end
