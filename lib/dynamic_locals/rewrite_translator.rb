@@ -40,6 +40,7 @@ module DynamicLocals
 
     def extract_vcalls(node)
       return [] unless RubyVM::AbstractSyntaxTree::Node === node
+      return [] if node.type == :DEFINED
       vars = node.children.flat_map { |child| extract_vcalls(child)  }
       if node.type == :VCALL
         vars << node

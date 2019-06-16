@@ -70,6 +70,14 @@ module CommonBehaviour
 
     assert_dynamic_result(12, src, { one: 1, two: 2, eight: 8 })
   end
+
+  def test_defined
+    assert_dynamic_result(nil, "defined?(foo)", { })
+    assert_dynamic_result("local-variable", "defined?(foo)", { foo: 123 })
+
+    assert_dynamic_result("method", "defined?(my_method_name)", { })
+    assert_dynamic_result("local-variable", "defined?(my_method_name)", { my_method_name: 123 })
+  end
 end
 
 class EvalTranslatorTest < Minitest::Test
@@ -82,4 +90,5 @@ class RewriteTranslatorTest < Minitest::Test
   Implementation = DynamicLocals::RewriteTranslator
 
   skip :test_or_assignment_with_value
+  skip :test_defined
 end
