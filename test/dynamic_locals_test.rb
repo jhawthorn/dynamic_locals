@@ -61,6 +61,15 @@ module CommonBehaviour
   def test_or_assignment_with_value
     assert_dynamic_result(123, "foo ||= :default; foo", { foo: 123 })
   end
+
+  def test_multiline_rewrites
+    src = <<~RUBY
+      three = one + two
+      one + three + eight
+    RUBY
+
+    assert_dynamic_result(12, src, { one: 1, two: 2, eight: 8 })
+  end
 end
 
 class EvalTranslatorTest < Minitest::Test
