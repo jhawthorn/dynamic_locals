@@ -86,6 +86,13 @@ module DynamicLocals
         preface = "#{name} = #{locals_hash}[#{name.inspect}]"
         preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end;"
         insert_before node, preface
+      elsif node.type == :LASGN
+        node.children.each { |child| find_replacements(child)  }
+
+        name = node.children[0]
+        preface = "#{name} = #{locals_hash}[#{name.inspect}]"
+        preface = "unless defined?(#{name}) == 'local-variable'.freeze;#{preface};end;"
+        insert_before node, preface
       else
         node.children.each { |child| find_replacements(child)  }
       end

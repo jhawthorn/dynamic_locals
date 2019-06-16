@@ -66,6 +66,10 @@ module CommonBehaviour
     assert_dynamic_result(123, "foo ||= bar", { bar: 123 })
   end
 
+  def test_assignment_with_existing_value
+    assert_dynamic_result(123, "foo = foo + 100", { foo: 23 })
+  end
+
   def test_multiline_rewrites
     src = <<~RUBY
       three = one + two
