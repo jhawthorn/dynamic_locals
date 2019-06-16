@@ -41,13 +41,13 @@ module DynamicLocals
     def find_rewrites(node)
       return [] unless RubyVM::AbstractSyntaxTree::Node === node
       return [] if node.type == :DEFINED
-      vars = node.children.flat_map { |child| find_rewrites(child)  }
+      rewrites = node.children.flat_map { |child| find_rewrites(child)  }
       if node.type == :VCALL
         name = node.children[0]
         replacement = "locals.fetch(#{name.inspect}){ #{name}() }"
-        vars << [node, replacement]
+        rewrites << [node, replacement]
       end
-      vars
+      rewrites
     end
   end
 end
