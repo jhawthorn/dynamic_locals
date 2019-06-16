@@ -5,7 +5,9 @@ require "dynamic_locals/rewrite_translator"
 module DynamicLocals
   class Error < StandardError; end
 
+  DefaultImplementation = RewriteTranslator
+
   def self.translate(src)
-    DynamicLocals::EvalTranslator.translate(src)
+    DefaultImplementation.translate(src)
   end
 end
