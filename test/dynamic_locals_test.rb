@@ -109,6 +109,15 @@ module CommonBehaviour
     assert_equal NameError, ex.class
     assert_equal "undefined local variable or method `undefined_method_or_local' for #{self}", ex.message
   end
+
+  def test_unicode
+    assert_dynamic_result(:🎃, ":🎃")
+    assert_dynamic_result(:🎃, "(:🎃)")
+    assert_dynamic_result(:🎃, "( :🎃 )")
+    assert_dynamic_result("Hello", "🎃", 🎃: "Hello")
+    assert_dynamic_result("Hello", "(🎃)", 🎃: "Hello")
+    assert_dynamic_result("Hello", "( 🎃 )", 🎃: "Hello")
+  end
 end
 
 class EvalTranslatorTest < Minitest::Test

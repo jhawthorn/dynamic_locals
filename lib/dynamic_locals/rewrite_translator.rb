@@ -20,10 +20,11 @@ module DynamicLocals
           range.end
         end.reverse
 
-      src = original_src.dup
+      src = original_src.dup.b
       rewrites.each do |range, rewrite|
-        src[range] = rewrite
+        src[range] = rewrite.b
       end
+      src.force_encoding(original_src.encoding)
 
       initialize = @assigned_locals.sort.uniq.map do |local|
         "#{local} = #{locals_hash}[#{local.inspect}];"
