@@ -13,7 +13,6 @@ module DynamicLocals
     end
 
     def translate
-      root = RubyVM::AbstractSyntaxTree.parse(original_src)
       rewrites = @replacements
       rewrites =
         rewrites.sort_by do |range, replacement|
