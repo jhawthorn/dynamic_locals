@@ -7,10 +7,14 @@ class DynamicLocalsTest < Minitest::Test
 end
 
 module CommonBehaviour
-  def assert_dynamic_result(expected, src, locals={})
+  def eval_with_locals(src, locals={})
     dynamic = self.class::Implementation.new(src).translate
     dynamic = "locals = (#{locals.inspect});#{dynamic}"
-    actual = eval(dynamic)
+    eval(dynamic)
+  end
+
+  def assert_dynamic_result(expected, src, locals={})
+    actual = eval_with_locals(src, locals)
     assert expected == actual, "Expected #{actual.inspect} to equal #{expected.inspect}"
   end
 
@@ -95,6 +99,15 @@ module CommonBehaviour
     assert_dynamic_result(true, "binding.local_variables.include?(:foo)", { foo: 123 })
     assert_dynamic_result(123, "binding.local_variable_get(:foo)", { foo: 123 })
     assert_dynamic_result(123, "binding.eval('foo')", { foo: 123 })
+  end
+
+  def test_raises_nameerror
+    ex = assert_raises do
+      eval_with_locals("undefined_method_or_local")
+    end
+
+    assert_equal NameError, ex.class
+    assert_equal "undefined local variable or method `undefined_method_or_local' for #{self}", ex.message
   end
 end
 
