@@ -19,7 +19,7 @@ module DynamicLocals
           range.end
         end.reverse
 
-      src = original_src.dup.b
+      src = original_src.b
       rewrites.each do |range, rewrite|
         src[range] = rewrite.b
       end
