@@ -70,6 +70,14 @@ module CommonBehaviour
     assert_dynamic_result(123, "foo ||= bar", { bar: 123 })
   end
 
+  def test_call_then_assignment
+    assert_dynamic_result(:hi_from_my_method, <<-RUBY)
+      a = my_method_name
+      my_method_name ||= my_method_name
+      a
+    RUBY
+  end
+
   def test_assignment_with_existing_value
     assert_dynamic_result(123, "foo = foo + 100", { foo: 23 })
     assert_dynamic_result(123, "foo += 100", { foo: 23 })
@@ -128,4 +136,6 @@ end
 class RewriteTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::RewriteTranslator
+
+  skip :test_raises_nameerror
 end

@@ -82,7 +82,7 @@ module DynamicLocals
         node.children.each { |child| find_replacements(child)  }
 
         name = node.children[0]
-        replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{name} }"
+        replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
         add_replacement node, replacement
       elsif node.type == :DEFINED && node.children[0].type == :VCALL
         name = node.children[0].children[0]
