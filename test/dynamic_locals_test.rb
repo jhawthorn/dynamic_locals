@@ -115,7 +115,7 @@ module CommonBehaviour
     end
 
     assert_equal NameError, ex.class
-    assert_equal "undefined local variable or method `undefined_method_or_local' for #{self}", ex.message
+    assert_equal "undefined local variable or method `undefined_method_or_local' for #{self.inspect}", ex.message
   end
 
   def test_unicode
