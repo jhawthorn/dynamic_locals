@@ -8,10 +8,13 @@ module DynamicLocals
 
       @assigned_locals = []
 
+      verbose_was = $VERBOSE
+      $VERBOSE = nil
       @rewriter = ASTRewriter.new(original_src)
 
       root = @rewriter.ast
       find_replacements(root)
+      $VERBOSE = verbose_was
     end
 
     def translate
