@@ -3,8 +3,8 @@ require "dynamic_locals/ast_rewriter"
 
 module DynamicLocals
   class RewriteTranslator < BaseTranslator
-    def initialize(*args)
-      super
+    def initialize(*args, **kwargs)
+      super(*args, **kwargs)
 
       @rewriter = ASTRewriter.new(original_src)
 
@@ -41,6 +41,8 @@ module DynamicLocals
         fallback = @assigned_locals.include?(name) ? "#{name}()" : name.to_s
         replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{fallback} }"
         @rewriter.replace node, replacement
+      elsif Prism::DefNode === node
+        find_replacements(node.receiver)
       else
         node.child_nodes.each { |child| find_replacements(child) }
       end
