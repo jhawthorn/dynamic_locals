@@ -23,7 +23,7 @@ module CommonBehaviour
       eval_with_locals(src, locals)
     end
 
-    assert_match(/undefined local variable or method [`']#{Regexp.escape(name.to_s)}['`]/, ex.message)
+    assert_match(/undefined (?:local variable or method|method) [`']#{Regexp.escape(name.to_s)}['`]/, ex.message)
   end
 
   def my_method_name(&block)
@@ -309,5 +309,25 @@ class RewriteTranslatorTest < Minitest::Test
 
     assert_equal "", translator.keyword_parameters
     assert_instance_of Binding, eval_with_keyword_locals("binding")
+  end
+end
+
+class KeywordRewriteTranslatorTest < Minitest::Test
+  include CommonBehaviour
+  Implementation = DynamicLocals::RewriteTranslator
+
+  def eval_with_locals(src, locals={})
+    translator = Implementation.new(src, lookup_strategy: :keywords)
+    method_name = :__dynamic_locals_keyword_common_test
+    params = translator.keyword_parameters(rest: :__dynamic_locals_unused_keywords)
+
+    singleton_class.class_eval("def #{method_name}(#{params}); #{translator.translate}; end")
+    send(method_name, **locals)
+  ensure
+    singleton_class.remove_method(method_name) if method_name && singleton_class.method_defined?(method_name)
+  end
+
+  def test_binding
+    assert_instance_of Binding, eval_with_locals("binding", { foo: 123 })
   end
 end
