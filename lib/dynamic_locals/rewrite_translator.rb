@@ -30,7 +30,7 @@ module DynamicLocals
 
       if defined_variable_call?(node)
         name = node.value.name
-        replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
+        replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}()))"
         @rewriter.replace node, replacement
       elsif variable_call?(node) && node.name == :binding
         # Assumes binding isn't a local and isn't overridden

@@ -18,8 +18,32 @@ module CommonBehaviour
     assert expected == actual, "Expected #{actual.inspect} to equal #{expected.inspect}"
   end
 
+  def assert_dynamic_name_error(src, locals={}, name:)
+    ex = assert_raises(NameError) do
+      eval_with_locals(src, locals)
+    end
+
+    assert_match(/undefined local variable or method [`']#{Regexp.escape(name.to_s)}['`]/, ex.message)
+  end
+
   def my_method_name(&block)
     :hi_from_my_method
+  end
+
+  def helper_value
+    :from_helper
+  end
+
+  def default_value
+    :from_default_helper
+  end
+
+  def rhs_value
+    :from_rhs_helper
+  end
+
+  def numeric_value
+    40
   end
 
   def test_no_variables
@@ -28,6 +52,12 @@ module CommonBehaviour
 
   def test_variable_access
     assert_dynamic_result(2, "foo", { foo: 2 })
+  end
+
+  def test_bare_read_matrix
+    assert_dynamic_result(:from_local, "helper_value", { helper_value: :from_local })
+    assert_dynamic_result(:from_helper, "helper_value", {})
+    assert_dynamic_name_error("missing_value", name: :missing_value)
   end
 
   def test_method_call
@@ -70,9 +100,30 @@ module CommonBehaviour
     assert_dynamic_result(123, "foo ||= bar", { bar: 123 })
   end
 
+  def test_or_assignment_matrix
+    assert_dynamic_result(:existing, "foo ||= missing_value; foo", { foo: :existing })
+    assert_dynamic_result(:from_default_local, "foo ||= default_value; foo", { default_value: :from_default_local })
+    assert_dynamic_result(:from_default_helper, "foo ||= default_value; foo", {})
+    assert_dynamic_result(:from_default_helper, "foo ||= default_value; foo", { foo: nil })
+    assert_dynamic_result(:from_default_helper, "foo ||= default_value; foo", { foo: false })
+    assert_dynamic_result(:from_default_helper, "helper_value ||= default_value; helper_value", {})
+
+    assert_dynamic_name_error("foo ||= missing_value", { foo: nil }, name: :missing_value)
+  end
+
   def test_and_assignment
     assert_dynamic_result(:replacement, "foo &&= bar; foo", { foo: true, bar: :replacement })
     assert_dynamic_result(false, "foo &&= bar; foo", { foo: false, bar: :replacement })
+  end
+
+  def test_and_assignment_matrix
+    assert_dynamic_result(:from_rhs_local, "foo &&= rhs_value; foo", { foo: true, rhs_value: :from_rhs_local })
+    assert_dynamic_result(:from_rhs_helper, "foo &&= rhs_value; foo", { foo: true })
+    assert_dynamic_result(false, "foo &&= missing_value; foo", { foo: false })
+    assert_dynamic_result(nil, "foo &&= missing_value; foo", {})
+    assert_dynamic_result(nil, "helper_value &&= rhs_value; helper_value", {})
+
+    assert_dynamic_name_error("foo &&= missing_value; foo", { foo: true }, name: :missing_value)
   end
 
   def test_multiple_assignment
@@ -93,6 +144,17 @@ module CommonBehaviour
 
     assert_dynamic_result(123, "foo = nil if false; foo", { foo: 123 })
     assert_dynamic_result(123, "if false; foo = nil; end; foo", { foo: 123 })
+  end
+
+  def test_arithmetic_assignment_matrix
+    assert_dynamic_result(41, "foo = numeric_value + 1; foo", {})
+    assert_dynamic_result(6, "foo = numeric_value + 1; foo", { numeric_value: 5 })
+    assert_dynamic_result(6, "foo = foo + numeric_value; foo", { foo: 1, numeric_value: 5 })
+    assert_dynamic_result(3, "foo += 1; foo", { foo: 2 })
+
+    assert_raises(NoMethodError) do
+      eval_with_locals("numeric_value += 1; numeric_value")
+    end
   end
 
   def test_multiline_rewrites
@@ -127,9 +189,20 @@ module CommonBehaviour
     assert_dynamic_result("method", "defined?(self.my_method_name)", { my_method_name: 123 })
   end
 
+  def test_defined_matrix
+    assert_dynamic_result("local-variable", "defined?(helper_value)", { helper_value: :from_local })
+    assert_dynamic_result("method", "defined?(helper_value)", {})
+    assert_dynamic_result(nil, "defined?(missing_value)", {})
+    assert_dynamic_result(nil, "result = defined?(assigned_later); assigned_later = 1; result", {})
+    assert_dynamic_result("local-variable", "result = defined?(assigned_later); assigned_later = 1; result", { assigned_later: 123 })
+    assert_dynamic_result("method", "defined?(helper_value())", { helper_value: :from_local })
+    assert_dynamic_result("method", "defined?(self.helper_value)", { helper_value: :from_local })
+  end
+
   def test_dynamic_locals_inside_blocks
     assert_dynamic_result([123], "[1].map { foo }", { foo: 123 })
     assert_dynamic_result([3], "[1].map { |one| one + two }", { two: 2 })
+    assert_dynamic_result([1], "[1].map { |foo| foo }", { foo: 123 })
   end
 
   def test_dynamic_locals_inside_lambdas
@@ -151,12 +224,7 @@ module CommonBehaviour
   end
 
   def test_raises_nameerror
-    ex = assert_raises do
-      eval_with_locals("undefined_method_or_local")
-    end
-
-    assert_equal NameError, ex.class
-    assert_match(/undefined local variable or method [`']undefined_method_or_local['`]/, ex.message)
+    assert_dynamic_name_error("undefined_method_or_local", name: :undefined_method_or_local)
   end
 
   def test_unicode
