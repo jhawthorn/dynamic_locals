@@ -18,7 +18,7 @@ module CommonBehaviour
     assert expected == actual, "Expected #{actual.inspect} to equal #{expected.inspect}"
   end
 
-  def my_method_name
+  def my_method_name(&block)
     :hi_from_my_method
   end
 
@@ -115,7 +115,7 @@ module CommonBehaviour
     end
 
     assert_equal NameError, ex.class
-    assert_equal "undefined local variable or method `undefined_method_or_local' for #{self.inspect}", ex.message
+    assert_match(/undefined local variable or method [`']undefined_method_or_local['`]/, ex.message)
   end
 
   def test_unicode
@@ -136,6 +136,4 @@ end
 class RewriteTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::RewriteTranslator
-
-  skip :test_raises_nameerror
 end

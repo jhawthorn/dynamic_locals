@@ -6,15 +6,11 @@ module DynamicLocals
     def initialize(*args)
       super
 
-      @assigned_locals = []
-
-      verbose_was = $VERBOSE
-      $VERBOSE = nil
       @rewriter = ASTRewriter.new(original_src)
 
       root = @rewriter.ast
+      @assigned_locals = root.locals
       find_replacements(root)
-      $VERBOSE = verbose_was
     end
 
     def translate
@@ -30,34 +26,32 @@ module DynamicLocals
     private
 
     def find_replacements(node)
-      return unless RubyVM::AbstractSyntaxTree::Node === node
-      if node.type == :VCALL && node.children == [:binding]
+      return unless Prism::Node === node
+
+      if defined_variable_call?(node)
+        name = node.value.name
+        replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
+        @rewriter.replace node, replacement
+      elsif variable_call?(node) && node.name == :binding
         # Assumes binding isn't a local and isn't overridden
         replacement = "(_binding = binding; #{locals_hash}.each { |k,v| _binding.local_variable_set(k, v) }; _binding)"
         @rewriter.replace node, replacement
-      elsif node.type == :VCALL
-        node.children.each { |child| find_replacements(child)  }
-
-        name = node.children[0]
-        replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{name}() }"
+      elsif variable_call?(node)
+        name = node.name
+        fallback = @assigned_locals.include?(name) ? "#{name}()" : name.to_s
+        replacement = "#{locals_hash}.fetch(#{name.inspect}){ #{fallback} }"
         @rewriter.replace node, replacement
-      elsif node.type == :DEFINED && node.children[0].type == :VCALL
-        name = node.children[0].children[0]
-        replacement = "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}))"
-        @rewriter.replace node, replacement
-      elsif node.type == :OP_ASGN_OR && node.children[0].type == :LVAR
-        node.children.each { |child| find_replacements(child)  }
-
-        name = node.children[0].children[0]
-        @assigned_locals << name
-      elsif node.type == :LASGN
-        node.children.each { |child| find_replacements(child)  }
-
-        name = node.children[0]
-        @assigned_locals << name
       else
-        node.children.each { |child| find_replacements(child)  }
+        node.child_nodes.each { |child| find_replacements(child) }
       end
+    end
+
+    def variable_call?(node)
+      Prism::CallNode === node && node.variable_call?
+    end
+
+    def defined_variable_call?(node)
+      Prism::DefinedNode === node && variable_call?(node.value)
     end
   end
 end

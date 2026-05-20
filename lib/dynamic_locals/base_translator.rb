@@ -8,7 +8,7 @@ module DynamicLocals
     end
 
     def translate
-      raise NotImplemented
+      raise NotImplementedError
     end
   end
 end
