@@ -221,6 +221,14 @@ module CommonBehaviour
     assert_equal [[1, 1], :from_helper], eval_with_locals("[[1, 2].map { helper_value ||= 0; helper_value += 1 }, helper_value]")
   end
 
+  def test_block_assignment_uses_supplied_dynamic_outer_local_without_outer_read
+    assert_equal [6, 7], eval_with_locals("[1, 2].map { numeric_value += 1 }", { numeric_value: 5 })
+  end
+
+  def test_omitted_dynamic_outer_local_stays_nested_local_without_outer_read
+    assert_equal [1, 1], eval_with_locals("[1, 2].map { helper_value ||= 0; helper_value += 1 }")
+  end
+
   def test_block_operator_assignment_captures_supplied_dynamic_outer_local
     assert_equal 6, eval_with_locals("[1].each { numeric_value += 1 }; numeric_value", { numeric_value: 5 })
   end

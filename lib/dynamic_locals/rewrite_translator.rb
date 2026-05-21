@@ -16,6 +16,7 @@ module DynamicLocals
       @keyword_unset_flags = {}
       collect_dynamic_locals(root)
       dynamic_locals.each { |local| keyword_unset_flag(local) } if lookup_strategy == :keywords
+      insert_nested_scope_resets(root)
       find_replacements(root)
     end
 
@@ -44,7 +45,14 @@ module DynamicLocals
     def collect_dynamic_locals(node)
       return unless Prism::Node === node
 
-      if defined_variable_call?(node)
+      if nested_scope?(node)
+        nested_local_table(node).each do |local|
+          @local_table << local
+          @dynamic_locals << local
+        end
+
+        child_nodes_for_method_body(node).each { |child| collect_dynamic_locals(child) }
+      elsif defined_variable_call?(node)
         @dynamic_locals << node.value.name
       elsif binding_call?(node)
         # Keep Kernel#binding as a method call; it is not a dynamic local.
@@ -53,6 +61,19 @@ module DynamicLocals
       else
         child_nodes_for_method_body(node).each { |child| collect_dynamic_locals(child) }
       end
+    end
+
+    def insert_nested_scope_resets(node)
+      return unless Prism::Node === node
+
+      if nested_scope?(node)
+        locals = nested_local_table(node) & dynamic_locals
+        if locals.any? && (first_statement = first_statement(node))
+          @rewriter.insert_before(first_statement, nested_scope_reset_src(locals))
+        end
+      end
+
+      child_nodes_for_method_body(node).each { |child| insert_nested_scope_resets(child) }
     end
 
     def find_replacements(node)
@@ -97,7 +118,11 @@ module DynamicLocals
     def local_lookup_src(name, fallback)
       case lookup_strategy
       when :hash
-        "#{locals_hash}.fetch(#{name.inspect}){ #{fallback} }"
+        if @local_table.include?(name)
+          "(#{locals_hash}.key?(#{name.inspect}) ? #{name} : #{fallback})"
+        else
+          "#{locals_hash}.fetch(#{name.inspect}){ #{fallback} }"
+        end
       when :keywords
         "(#{keyword_unset_flag(name)} ? #{name}() : #{name})"
       else
@@ -127,6 +152,48 @@ module DynamicLocals
         end
         temp
       end
+    end
+
+    def nested_scope_reset_src(locals)
+      locals.sort.uniq.map do |local|
+        case lookup_strategy
+        when :hash
+          "#{local} = nil unless #{locals_hash}.key?(#{local.inspect});"
+        when :keywords
+          "#{local} = nil if #{keyword_unset_flag(local)};"
+        else
+          raise ArgumentError, "unknown lookup strategy: #{lookup_strategy.inspect}"
+        end
+      end.join
+    end
+
+    def nested_local_table(node)
+      node.locals - parameter_names(node.parameters)
+    end
+
+    def parameter_names(node, names = [])
+      return names unless Prism::Node === node
+
+      if parameter_node?(node) && node.respond_to?(:name) && node.name
+        names << node.name
+      elsif Prism::BlockLocalVariableNode === node
+        names << node.name
+      end
+
+      node.child_nodes.each { |child| parameter_names(child, names) }
+      names
+    end
+
+    def parameter_node?(node)
+      node.class.name.start_with?("Prism::") && node.class.name.end_with?("ParameterNode")
+    end
+
+    def first_statement(node)
+      node.body&.body&.first
+    end
+
+    def nested_scope?(node)
+      Prism::BlockNode === node || Prism::LambdaNode === node
     end
 
     def child_nodes_for_method_body(node)
