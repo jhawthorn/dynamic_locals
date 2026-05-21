@@ -330,4 +330,45 @@ class KeywordRewriteTranslatorTest < Minitest::Test
   def test_binding
     assert_instance_of Binding, eval_with_locals("binding", { foo: 123 })
   end
+
+  def test_block_assignment_captures_supplied_dynamic_outer_local
+    assert_equal :changed, eval_with_locals("[1].each { helper_value = :changed }; helper_value", { helper_value: :original })
+  end
+
+  def test_block_assignment_does_not_leak_when_dynamic_outer_local_is_omitted
+    assert_equal :from_helper, eval_with_locals("[1].each { helper_value = :changed }; helper_value")
+  end
+
+  def test_omitted_dynamic_outer_local_does_not_make_block_assignment_capture_between_yields
+    assert_equal [[1, 1], :from_helper], eval_with_locals("[[1, 2].map { helper_value ||= 0; helper_value += 1 }, helper_value]")
+  end
+
+  def test_block_operator_assignment_captures_supplied_dynamic_outer_local
+    assert_equal 6, eval_with_locals("[1].each { numeric_value += 1 }; numeric_value", { numeric_value: 5 })
+  end
+
+  def test_block_or_assignment_captures_supplied_dynamic_outer_local
+    assert_equal :changed, eval_with_locals("[1].each { helper_value ||= :changed }; helper_value", { helper_value: nil })
+    assert_equal :original, eval_with_locals("[1].each { helper_value ||= :changed }; helper_value", { helper_value: :original })
+  end
+
+  def test_lambda_assignment_captures_supplied_dynamic_outer_local
+    assert_equal :changed, eval_with_locals("-> { helper_value = :changed }.call; helper_value", { helper_value: :original })
+  end
+
+  def test_omitted_dynamic_outer_local_does_not_make_lambda_assignment_capture_between_calls
+    assert_equal [1, 1, :from_helper], eval_with_locals("l = -> { helper_value ||= 0; helper_value += 1 }; [l.call, l.call, helper_value]")
+  end
+
+  def test_block_parameter_shadows_dynamic_outer_local
+    assert_equal [[1], :outer], eval_with_locals("[[1].map { |helper_value| helper_value }, helper_value]", { helper_value: :outer })
+  end
+
+  def test_block_local_declaration_shadows_dynamic_outer_local
+    assert_equal [[1], :outer], eval_with_locals("[[1].map { |x; helper_value| helper_value = x; helper_value }, helper_value]", { helper_value: :outer })
+  end
+
+  def test_block_local_declaration_prevents_omitted_dynamic_outer_local_capture_between_yields
+    assert_equal [[1, 1], :from_helper], eval_with_locals("[[1, 2].map { |x; helper_value| helper_value ||= 0; helper_value += 1 }, helper_value]")
+  end
 end
