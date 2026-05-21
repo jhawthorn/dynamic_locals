@@ -9,8 +9,10 @@ module DynamicLocals
       @rewriter = ASTRewriter.new(original_src)
 
       root = @rewriter.ast
-      @assigned_locals = root.locals
-      @dynamic_locals = @assigned_locals.dup
+      # Names assigned anywhere in this method body. Earlier occurrences of
+      # these names can still be CallNodes, e.g. `foo; foo = 123`.
+      @local_table = root.locals
+      @dynamic_locals = @local_table.dup
       @keyword_unset_flags = {}
       collect_dynamic_locals(root)
       dynamic_locals.each { |local| keyword_unset_flag(local) } if lookup_strategy == :keywords
@@ -32,7 +34,7 @@ module DynamicLocals
     def translate
       src = @rewriter.modified_src
 
-      initialize = initialize_assigned_locals
+      initialize = initialize_local_table
 
       "#{initialize}#{src}"
     end
@@ -69,7 +71,7 @@ module DynamicLocals
         # so leave Kernel#binding as a normal method call.
       elsif variable_call?(node)
         name = node.name
-        fallback = @assigned_locals.include?(name) ? "#{name}()" : name.to_s
+        fallback = @local_table.include?(name) ? "#{name}()" : name.to_s
         replacement = local_lookup_src(name, fallback)
         @rewriter.replace node, replacement
       elsif Prism::DefNode === node
@@ -79,8 +81,8 @@ module DynamicLocals
       end
     end
 
-    def initialize_assigned_locals
-      @assigned_locals.sort.uniq.map do |local|
+    def initialize_local_table
+      @local_table.sort.uniq.map do |local|
         case lookup_strategy
         when :hash
           "#{local} = #{locals_hash}[#{local.inspect}];"
