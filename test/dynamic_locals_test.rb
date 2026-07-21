@@ -258,6 +258,16 @@ module CommonBehaviour
     assert_equal [[1, 1], :from_helper], eval_with_locals("[[1, 2].map { |x; helper_value| helper_value ||= 0; helper_value += 1 }, helper_value]")
   end
 
+  def test_block_only_assignment_does_not_create_method_level_local
+    # In plain Ruby, a name assigned only inside a block is block-local: it never
+    # becomes a variable in the surrounding method scope, so the method's binding
+    # has no such local. The rewrite strategy currently hoists every name assigned
+    # anywhere in the body into a method-level local, so an assignment inside a
+    # block always affects the method level and leaks into the binding.
+    refute eval_with_locals("[1].each { foo = 1 }; binding.local_variables.include?(:foo)"),
+      "block-only assignment leaked `foo` into the method-level binding"
+  end
+
   def test_method_definitions_do_not_capture_dynamic_locals
     ex = assert_raises(NameError) do
       eval_with_locals("def self.__dynamic_locals_method_probe; foo; end; __dynamic_locals_method_probe", { foo: 123 })

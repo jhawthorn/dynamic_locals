@@ -25,6 +25,7 @@ module DynamicLocals
     end
 
     def keyword_parameters(rest: nil)
+      return "locals = {}" unless lookup_strategy == :keywords
       params = dynamic_locals.map do |local|
         "#{local}: (#{keyword_unset_flag(local)} = true; nil)"
       end
@@ -38,6 +39,10 @@ module DynamicLocals
       initialize = initialize_local_table
 
       "#{initialize}#{src}"
+    end
+
+    def to_s(name="dynamic")
+      "def #{name}(#{keyword_parameters})\n#{translate}\nend"
     end
 
     private
