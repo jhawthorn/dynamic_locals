@@ -231,6 +231,10 @@ module BTest
       when :normal_exit, :finish
         # Output is irrelevant (and often nondeterministic); a clean run is enough.
         dynamic.ok?
+      when :match, :not_match
+        # The pattern is the ground truth. Requiring byte-identical stdout would
+        # flag differences that are only embedded temp-file paths / addresses.
+        compare(dynamic)
       else
         dynamic.stdout == baseline.stdout && compare(dynamic)
       end
