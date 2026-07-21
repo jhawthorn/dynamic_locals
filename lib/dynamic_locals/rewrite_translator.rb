@@ -208,7 +208,7 @@ module DynamicLocals
     end
 
     def variable_call?(node)
-      Prism::CallNode === node && node.variable_call?
+      Prism::CallNode === node && node.variable_call? && !known_locals.include?(node.name)
     end
 
     def binding_call?(node)

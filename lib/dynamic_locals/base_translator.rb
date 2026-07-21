@@ -1,11 +1,12 @@
 module DynamicLocals
   class BaseTranslator
-    attr_reader :original_src, :locals_hash, :lookup_strategy
+    attr_reader :original_src, :locals_hash, :lookup_strategy, :known_locals
 
-    def initialize(src, locals_hash: :locals, lookup_strategy: :hash)
+    def initialize(src, locals_hash: :locals, lookup_strategy: :hash, known_locals: [])
       @original_src = src
       @locals_hash = locals_hash
       @lookup_strategy = lookup_strategy
+      @known_locals = Array(known_locals).map(&:to_sym)
     end
 
     def translate
