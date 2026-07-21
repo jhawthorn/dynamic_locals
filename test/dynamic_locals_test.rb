@@ -199,6 +199,30 @@ module CommonBehaviour
     assert_dynamic_result("method", "defined?(self.helper_value)", { helper_value: :from_local })
   end
 
+  def test_defined_supplied_local_is_nil
+    assert_dynamic_result("local-variable", "defined?(foo)", { foo: nil })
+  end
+
+  def test_defined_locally_assigned_name
+    assert_dynamic_result("local-variable", "foo = 1; defined?(foo)", {})
+  end
+
+  def test_defined_assignment_expression
+    assert_dynamic_result("assignment", "defined?(foo = 1)", {})
+    # defined? does not evaluate its operand, so the assignment never runs.
+    assert_dynamic_result(nil, "defined?(foo = 1); foo", {})
+  end
+
+  def test_defined_operator_expression
+    assert_dynamic_result("method", "defined?(foo + 1)", { foo: 2 })
+    assert_dynamic_result(nil, "defined?(foo + 1)", {})
+    assert_dynamic_result("method", "defined?(numeric_value + 1)", {})
+  end
+
+  def test_defined_instance_variable
+    assert_dynamic_result(nil, "defined?(@x)", {})
+  end
+
   def test_dynamic_locals_inside_blocks
     assert_dynamic_result([123], "[1].map { foo }", { foo: 123 })
     assert_dynamic_result([3], "[1].map { |one| one + two }", { two: 2 })
