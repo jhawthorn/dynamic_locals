@@ -268,6 +268,21 @@ module CommonBehaviour
       "block-only assignment leaked `foo` into the method-level binding"
   end
 
+  def test_pattern_match_pin_uses_dynamic_local
+    # `^foo` requires `foo` to already be a known local at parse time. When `foo`
+    # is supplied as a dynamic local it should pin to that value, but the rewrite
+    # strategy parses the raw source before `foo` exists as a local, so parsing
+    # fails with a SyntaxError instead of matching.
+    assert_dynamic_result(:matched, "case numeric_value; in ^foo then :matched; else :no; end", { foo: 40 })
+  end
+
+  def test_method_body_implicit_rescue
+    # The input is a method body, where a bare `rescue` is an implicit
+    # begin/rescue. Parsing the source as a standalone program rejects it, so
+    # this body cannot be translated at all.
+    assert_dynamic_result(:rescued, "raise 'boom'\nrescue\n:rescued")
+  end
+
   def test_method_definitions_do_not_capture_dynamic_locals
     ex = assert_raises(NameError) do
       eval_with_locals("def self.__dynamic_locals_method_probe; foo; end; __dynamic_locals_method_probe", { foo: 123 })
