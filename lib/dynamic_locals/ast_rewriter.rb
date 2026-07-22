@@ -38,14 +38,17 @@ module DynamicLocals
     end
 
     def modified_src
-      rewrites = @replacements
+      # Apply right-to-left so earlier ranges stay valid. Ties are broken so
+      # that a zero-width insertion at an offset is applied before a
+      # replacement ending there (keeping the insertion outside the replaced
+      # text), and same-position insertions land in registration order.
       rewrites =
-        rewrites.sort_by do |replacement|
-          replacement.range.end
+        @replacements.each_with_index.sort_by do |replacement, index|
+          [replacement.range.end, replacement.range.begin, index]
         end.reverse
 
       src = original_src.b
-      rewrites.each do |replacement|
+      rewrites.each do |replacement, _|
         src[replacement.range] = replacement.src.b
       end
       src.force_encoding(original_src.encoding)
@@ -55,9 +58,23 @@ module DynamicLocals
     def insert_before(node, src)
       raise TypeError unless Prism::Node === node
 
-      start = range_from(node).begin
-      range = start...start
-      @replacements << Replacement.new(range, src)
+      insert_at(node.location.start_offset, src)
+    end
+
+    def insert_after(node, src)
+      raise TypeError unless Prism::Node === node
+
+      insert_at(node.location.end_offset, src)
+    end
+
+    # Offsets are relative to the wrapped source, as in Prism locations.
+    def insert_at(wrapped_offset, src)
+      pos = wrapped_offset - @offset
+      @replacements << Replacement.new(pos...pos, src)
+    end
+
+    def replace_offsets(wrapped_start, wrapped_end, src)
+      @replacements << Replacement.new((wrapped_start - @offset)...(wrapped_end - @offset), src)
     end
 
     def replace(node, src)
