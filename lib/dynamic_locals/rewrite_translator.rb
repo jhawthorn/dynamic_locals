@@ -11,7 +11,7 @@ module DynamicLocals
       root = @rewriter.ast
       # Names assigned anywhere in this method body. Earlier occurrences of
       # these names can still be CallNodes, e.g. `foo; foo = 123`.
-      @local_table = root.locals
+      @local_table = @rewriter.locals
       @dynamic_locals = @local_table.dup
       @keyword_unset_flags = {}
       collect_dynamic_locals(root)
