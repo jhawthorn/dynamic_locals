@@ -283,12 +283,31 @@ module CommonBehaviour
   end
 
   def test_block_only_assignment_gets_fresh_binding_per_invocation
-    # In plain Ruby a name assigned only inside a block is block-local, so each
-    # invocation of the block gets a fresh binding and each escaping closure
-    # captures its own value. The rewrite strategy hoists the name into a single
-    # method-level local shared across every invocation, so all the closures end
-    # up reading the same final value.
-    assert_equal [1, 2, 3], eval_with_locals("[1, 2, 3].map { |x| v = x; -> { v } }.map(&:call)")
+    src = "[1, 2, 3].map { |x| v = x; -> { v } }.map(&:call)"
+
+    # When `v` is a supplied local it is a single outer variable shared by every
+    # block invocation, so all the escaping closures read the same final value.
+    assert_equal [3, 3, 3], eval_with_locals(src, { v: 0 })
+
+    # When `v` is omitted it is block-local: each invocation gets a fresh binding
+    # and each closure captures its own value. The rewrite strategy always hoists
+    # `v` into one shared method-level local, so it wrongly returns [3, 3, 3] here.
+    assert_equal [1, 2, 3], eval_with_locals(src)
+  end
+
+  def test_block_assignment_stays_block_local_when_outer_assignment_is_later
+    src = "1.times { x = 1 }\nx = 5 if false\nx"
+
+    # When `x` is supplied it is an outer local, so `x = 1` inside the block
+    # captures it and the trailing `x` reads 1.
+    assert_equal 1, eval_with_locals(src, { x: 99 })
+
+    # When `x` is omitted, scoping is decided lexically: at the point the block is
+    # parsed `x` is not yet an outer local (its only outer assignment appears
+    # later), so `x = 1` is block-local and the trailing `x` reads the method-level
+    # `x`, which stays nil because `x = 5 if false` never runs. The rewrite
+    # strategy hoists `x` into one shared local, so the block assignment leaks as 1.
+    assert_nil eval_with_locals(src)
   end
 
   def test_pattern_match_pin_uses_dynamic_local
