@@ -382,6 +382,8 @@ module CommonBehaviour
   end
 
   def test_assignment_in_it_parameter_block
+    skip "the `it` block parameter requires Ruby 3.4+" if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("3.4")
+
     src = "[1].map { v = it; v + one }"
     assert_equal [2], eval_with_locals(src, { one: 1 })
     assert_equal [2], eval_with_locals(src, { one: 1, v: 9 })
