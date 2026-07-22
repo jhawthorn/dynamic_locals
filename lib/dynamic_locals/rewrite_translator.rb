@@ -41,8 +41,11 @@ module DynamicLocals
       "#{initialize}#{src}"
     end
 
-    def to_s(name="dynamic")
-      "def #{name}(#{keyword_parameters})\n#{translate}\nend"
+    def to_s(name = "__dynamic_locals__")
+      # In the keyword strategy the locals are real parameters; absorb any
+      # unsupplied-but-passed keys so callers can splat an arbitrary hash.
+      params = keyword_parameters(rest: :__dynamic_locals_unused_keywords)
+      "def #{name}(#{params})\n#{translate}\nend"
     end
 
     private

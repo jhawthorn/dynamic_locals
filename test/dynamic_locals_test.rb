@@ -7,10 +7,29 @@ class DynamicLocalsTest < Minitest::Test
 end
 
 module CommonBehaviour
+  # Name of the throwaway method each translated body is compiled into.
+  RUN_METHOD = :__dynamic_locals_run
+
+  # Overridden by test classes that need a non-default translator (e.g. the
+  # keyword lookup strategy).
+  def translator_options
+    {}
+  end
+
   def eval_with_locals(src, locals={})
-    dynamic = self.class::Implementation.new(src).translate
-    dynamic = "locals = (#{locals.inspect});#{dynamic}"
-    eval(dynamic)
+    translator = self.class::Implementation.new(src, **translator_options)
+    # The translated source is a method body (see README), so run it as one.
+    # Defining it on the test's singleton keeps `self` as the test instance, so
+    # helper methods still resolve, while method-body-only syntax (an implicit
+    # rescue, yield, a top-level return) parses correctly. The translator owns
+    # its own signature (a `locals` hash vs. keyword params), so build the whole
+    # `def` from it and splat the locals in a way that fits either shape.
+    singleton_class.class_eval(translator.to_s(RUN_METHOD))
+    send(RUN_METHOD, **locals)
+  ensure
+    # Building the method may raise (e.g. a SyntaxError from `translate`); only
+    # remove it when it was defined, and let the original error propagate.
+    singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
   end
 
   def assert_dynamic_result(expected, src, locals={})
@@ -377,13 +396,10 @@ class RewriteTranslatorTest < Minitest::Test
 
   def eval_with_keyword_locals(src, locals={})
     translator = Implementation.new(src, lookup_strategy: :keywords)
-    method_name = :__dynamic_locals_keyword_strategy_test
-    params = translator.keyword_parameters(rest: :__dynamic_locals_unused_keywords)
-
-    singleton_class.class_eval("def #{method_name}(#{params}); #{translator.translate}; end")
-    send(method_name, **locals)
+    singleton_class.class_eval(translator.to_s(RUN_METHOD))
+    send(RUN_METHOD, **locals)
   ensure
-    singleton_class.remove_method(method_name) if method_name && singleton_class.method_defined?(method_name)
+    singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
   end
 
   def test_syntax_errors_are_raised_at_translate_time
@@ -445,15 +461,8 @@ class KeywordRewriteTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::RewriteTranslator
 
-  def eval_with_locals(src, locals={})
-    translator = Implementation.new(src, lookup_strategy: :keywords)
-    method_name = :__dynamic_locals_keyword_common_test
-    params = translator.keyword_parameters(rest: :__dynamic_locals_unused_keywords)
-
-    singleton_class.class_eval("def #{method_name}(#{params}); #{translator.translate}; end")
-    send(method_name, **locals)
-  ensure
-    singleton_class.remove_method(method_name) if method_name && singleton_class.method_defined?(method_name)
+  def translator_options
+    { lookup_strategy: :keywords }
   end
 
   def test_binding
