@@ -309,8 +309,7 @@ module CommonBehaviour
     assert_equal [3, 3, 3], eval_with_locals(src, { v: 0 })
 
     # When `v` is omitted it is block-local: each invocation gets a fresh binding
-    # and each closure captures its own value. The rewrite strategy always hoists
-    # `v` into one shared method-level local, so it wrongly returns [3, 3, 3] here.
+    # and each closure captures its own value.
     assert_equal [1, 2, 3], eval_with_locals(src)
   end
 
@@ -324,9 +323,68 @@ module CommonBehaviour
     # When `x` is omitted, scoping is decided lexically: at the point the block is
     # parsed `x` is not yet an outer local (its only outer assignment appears
     # later), so `x = 1` is block-local and the trailing `x` reads the method-level
-    # `x`, which stays nil because `x = 5 if false` never runs. The rewrite
-    # strategy hoists `x` into one shared local, so the block assignment leaks as 1.
+    # `x`, which stays nil because `x = 5 if false` never runs.
     assert_nil eval_with_locals(src)
+  end
+
+  def test_block_multiple_assignment
+    src = "[1].map { a, b = [1, 2]; a + b }"
+    assert_equal [3], eval_with_locals(src)
+    assert_equal [3], eval_with_locals(src, { a: 9, b: 9 })
+  end
+
+  def test_block_multiple_assignment_captures_supplied_dynamic_outer_local
+    assert_equal 1, eval_with_locals("[1].each { a, b = [1, 2] }; a", { a: 0 })
+  end
+
+  def test_block_multiple_assignment_stays_block_local_when_omitted
+    assert_dynamic_name_error("[1].each { a, b = [1, 2] }; a", name: :a)
+  end
+
+  def test_block_multiple_assignment_with_splat_and_nesting
+    src = "[1].map { a, *b, (c, d) = [1, 2, 3, [4, 5]]; [a, b, c, d] }.first"
+    assert_equal [1, [2, 3], 4, 5], eval_with_locals(src)
+    assert_equal [1, [2, 3], 4, 5], eval_with_locals(src, { a: 9, c: 9 })
+  end
+
+  def test_block_rescue_reference
+    src = "[1].map { begin; raise 'boom'; rescue => e; e.message; end }"
+    assert_equal ["boom"], eval_with_locals(src)
+    assert_equal ["boom"], eval_with_locals(src, { e: nil })
+  end
+
+  def test_block_rescue_reference_captures_supplied_dynamic_outer_local
+    assert_equal "boom", eval_with_locals("[1].each { begin; raise 'boom'; rescue => e; end }; e.message", { e: nil })
+  end
+
+  def test_block_rescue_reference_stays_block_local_when_omitted
+    assert_dynamic_name_error("[1].each { begin; raise 'boom'; rescue => e; end }; e", name: :e)
+  end
+
+  def test_for_loop_inside_block
+    src = "[1].map { total = 0; for v in [1, 3]; total += v; end; total + v }"
+    assert_equal [7], eval_with_locals(src)
+    assert_equal [7], eval_with_locals(src, { total: 9, v: 9 })
+  end
+
+  def test_for_loop_index_inside_block_captures_supplied_dynamic_outer_local
+    assert_equal 2, eval_with_locals("[1].each { for v in [1, 2]; end }; v", { v: 0 })
+  end
+
+  def test_for_loop_index_inside_block_stays_block_local_when_omitted
+    assert_dynamic_name_error("[1].each { for v in [1, 2]; end }; v", name: :v)
+  end
+
+  def test_assignment_in_numbered_parameter_block
+    src = "[1].map { v = _1; v + one }"
+    assert_equal [2], eval_with_locals(src, { one: 1 })
+    assert_equal [2], eval_with_locals(src, { one: 1, v: 9 })
+  end
+
+  def test_assignment_in_it_parameter_block
+    src = "[1].map { v = it; v + one }"
+    assert_equal [2], eval_with_locals(src, { one: 1 })
+    assert_equal [2], eval_with_locals(src, { one: 1, v: 9 })
   end
 
   def test_block_local_keeps_per_activation_binding_across_reentrancy
