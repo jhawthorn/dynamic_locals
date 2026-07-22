@@ -126,6 +126,16 @@ module DynamicLocals
       elsif Prism::ForNode === node
         shadow_for_index(node, scopes)
         child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+      elsif Prism::MatchRequiredNode === node
+        shadow_required_pattern(node, scopes)
+        child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+      elsif Prism::MatchPredicateNode === node
+        shadow_predicate_pattern(node, scopes)
+        child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+      elsif Prism::InNode === node
+        shadow_in_clause(node, scopes) do
+          child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+        end
       else
         child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
       end
@@ -297,6 +307,66 @@ module DynamicLocals
       else
         @rewriter.insert_at(node.collection.location.end_offset, " do #{sync}")
       end
+    end
+
+    def shadow_required_pattern(node, scopes)
+      names = shadow_pattern_names(node.pattern, scopes)
+      return if names.empty?
+
+      result = generate_hygienic_name("__dynamic_locals_pattern_result")
+      @rewriter.insert_before(node, "begin #{result} = (")
+      @rewriter.insert_after(node.value, "); #{result}")
+      @rewriter.insert_after(node, "; #{shadow_sync_src(names)}; #{result} end")
+    end
+
+    def shadow_predicate_pattern(node, scopes)
+      names = shadow_pattern_names(node.pattern, scopes)
+      return if names.empty?
+
+      result = generate_hygienic_name("__dynamic_locals_pattern_result")
+      @rewriter.insert_before(node, "(begin #{result} = (")
+      @rewriter.insert_after(
+        node,
+        "); #{shadow_sync_src(names)} if #{result}; #{result} end)",
+      )
+    end
+
+    def shadow_in_clause(node, scopes)
+      guard = node.pattern if Prism::IfNode === node.pattern || Prism::UnlessNode === node.pattern
+      pattern = guard ? guard.statements : node.pattern
+      names = shadow_pattern_names(pattern, scopes)
+      return yield if names.empty?
+
+      sync = shadow_sync_src(names)
+      if guard
+        predicate = guard.predicate
+        # Register the closing insertion after rewriting the predicate so a
+        # nested pattern wrapper closes before this guard wrapper.
+        @rewriter.insert_before(predicate, "(begin #{sync}; ")
+        yield
+        @rewriter.insert_after(predicate, " end)")
+      else
+        if (first = node.statements&.body&.first)
+          @rewriter.insert_before(first, "#{sync}; ")
+        elsif node.then_loc
+          @rewriter.insert_at(node.then_loc.end_offset, " #{sync};")
+        else
+          @rewriter.insert_after(node.pattern, "; #{sync};")
+        end
+        yield
+      end
+    end
+
+    def shadow_pattern_names(pattern, scopes)
+      names = []
+      each_local_target(pattern) do |target|
+        names << target.name if shadow_binding?(target.name, target.depth, scopes)
+      end
+      names.uniq
+    end
+
+    def shadow_sync_src(names)
+      names.map { |name| "#{shadow_name(name)} = #{name}" }.join("; ")
     end
 
     def each_local_target(node, &block)

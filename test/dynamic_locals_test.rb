@@ -403,12 +403,56 @@ module CommonBehaviour
   end
 
   def test_pattern_match_pin_uses_dynamic_local
-    skip "pending"
-    # `^foo` requires `foo` to already be a known local at parse time. When `foo`
-    # is supplied as a dynamic local it should pin to that value, but the rewrite
-    # strategy parses the raw source before `foo` exists as a local, so parsing
-    # fails with a SyntaxError instead of matching.
+    # Prism sees the pin before the dynamic local has been declared. Translation
+    # must retain it as a local read so the generated method parameter or hash
+    # initialization can provide the binding on the final parse.
     assert_dynamic_result(:matched, "case numeric_value; in ^foo then :matched; else :no; end", { foo: 40 })
+    assert_dynamic_result([:matched], "[1].map { case numeric_value; in ^foo then :matched; else :no; end }", { foo: 40 })
+  end
+
+  def test_block_pattern_targets_preserve_dynamic_or_nested_scope
+    cases = [
+      ["[1, 2].map { |value| value => x; -> { x } }.map(&:call)", { x: 0 }, [2, 2], [1, 2]],
+      ["[1, 2].map { |value| value in x; -> { x } }.map(&:call)", { x: 0 }, [2, 2], [1, 2]],
+      ["[{ x: 1 }, { x: 2 }].map { |value| value => { x: }; -> { x } }.map(&:call)", { x: 0 }, [2, 2], [1, 2]],
+      ["[[1, 2], [3, 4]].map { |value| value => [*x]; -> { x } }.map(&:call)", { x: [] }, [[3, 4], [3, 4]], [[1, 2], [3, 4]]],
+    ]
+
+    cases.each do |src, locals, shared, fresh|
+      assert_equal shared, eval_with_locals(src, locals)
+      assert_equal fresh, eval_with_locals(src)
+    end
+  end
+
+  def test_block_in_clause_targets_preserve_dynamic_or_nested_scope
+    sources = [
+      "[1, 2].map { |value| case value; in x if x > 0 then -> { x }; end }.map(&:call)",
+      "[1, 2].map { |value| case value; in x unless x < 1 then -> { x }; end }.map(&:call)",
+    ]
+
+    sources.each do |src|
+      assert_equal [2, 2], eval_with_locals(src, { x: 0 })
+      assert_equal [1, 2], eval_with_locals(src)
+    end
+  end
+
+  def test_pattern_target_inside_in_clause_guard_has_its_own_sync_point
+    src = "[1, 2].map { |value| case value; in x if [x] in [y] then -> { [x, y] }; end }.map(&:call)"
+
+    assert_equal [[2, 2], [2, 2]], eval_with_locals(src, { x: 0, y: 0 })
+    assert_equal [[1, 1], [2, 2]], eval_with_locals(src)
+  end
+
+  def test_failed_block_pattern_predicate_does_not_assign
+    assert_equal :outer, eval_with_locals("[1].each { [] in [x] }; x", { x: :outer })
+    assert_dynamic_name_error("[1].each { [] in [x] }; x", name: :x)
+  end
+
+  def test_in_clause_target_is_assigned_before_a_failing_guard
+    src = "[1].map { case 1; in x if false; else; end; x }"
+
+    assert_equal [1], eval_with_locals(src, { x: :outer })
+    assert_equal [1], eval_with_locals(src)
   end
 
   def test_method_body_implicit_rescue
@@ -467,6 +511,14 @@ class RewriteTranslatorTest < Minitest::Test
   def test_syntax_errors_are_raised_at_translate_time
     assert_raises(SyntaxError) do
       Implementation.new("def").translate
+    end
+  end
+
+  def test_dynamic_pin_inside_nested_method_remains_a_syntax_error
+    src = "def nested; case 1; in ^foo then :matched; end; end"
+
+    assert_raises(SyntaxError) do
+      Implementation.new(src).translate
     end
   end
 
