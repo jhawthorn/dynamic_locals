@@ -310,6 +310,19 @@ module CommonBehaviour
     assert_nil eval_with_locals(src)
   end
 
+  def test_block_local_keeps_per_activation_binding_across_reentrancy
+    src = "f = ->(n) { x = n; f.(n - 1) if n > 0; x }; f.(3)"
+
+    # When `x` is supplied it is a single shared local, so the recursive call
+    # overwrites it before the outer activation reads it back.
+    assert_equal 0, eval_with_locals(src, { x: 99 })
+
+    # When `x` is omitted it is block-local, so each activation gets its own `x`
+    # and the outer call still reads its own 3. The rewrite strategy hoists `x`
+    # into one shared local, so the recursion clobbers it and it wrongly reads 0.
+    assert_equal 3, eval_with_locals(src)
+  end
+
   def test_pattern_match_pin_uses_dynamic_local
     # `^foo` requires `foo` to already be a known local at parse time. When `foo`
     # is supplied as a dynamic local it should pin to that value, but the rewrite
