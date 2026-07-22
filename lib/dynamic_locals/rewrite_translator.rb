@@ -194,7 +194,16 @@ module DynamicLocals
     end
 
     def first_statement(node)
-      node.body&.body&.first
+      statements_node(node.body)&.body&.first
+    end
+
+    # A block/lambda body is normally a StatementsNode, but becomes a BeginNode
+    # when the scope has a rescue/else/ensure clause (e.g. `foo do ... rescue ... end`).
+    def statements_node(body)
+      case body
+      when Prism::StatementsNode then body
+      when Prism::BeginNode then body.statements
+      end
     end
 
     def nested_scope?(node)
