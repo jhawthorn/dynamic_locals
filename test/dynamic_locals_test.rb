@@ -282,14 +282,13 @@ module CommonBehaviour
     assert_equal [[1, 1], :from_helper], eval_with_locals("[[1, 2].map { |x; helper_value| helper_value ||= 0; helper_value += 1 }, helper_value]")
   end
 
-  def test_block_only_assignment_does_not_create_method_level_local
-    # In plain Ruby, a name assigned only inside a block is block-local: it never
-    # becomes a variable in the surrounding method scope, so the method's binding
-    # has no such local. The rewrite strategy currently hoists every name assigned
-    # anywhere in the body into a method-level local, so an assignment inside a
-    # block always affects the method level and leaks into the binding.
-    refute eval_with_locals("[1].each { foo = 1 }; binding.local_variables.include?(:foo)"),
-      "block-only assignment leaked `foo` into the method-level binding"
+  def test_block_only_assignment_gets_fresh_binding_per_invocation
+    # In plain Ruby a name assigned only inside a block is block-local, so each
+    # invocation of the block gets a fresh binding and each escaping closure
+    # captures its own value. The rewrite strategy hoists the name into a single
+    # method-level local shared across every invocation, so all the closures end
+    # up reading the same final value.
+    assert_equal [1, 2, 3], eval_with_locals("[1, 2, 3].map { |x| v = x; -> { v } }.map(&:call)")
   end
 
   def test_pattern_match_pin_uses_dynamic_local
