@@ -8,12 +8,12 @@ module DynamicLocals
 
   DefaultImplementation = RewriteTranslator
 
-  def self.translate(*args)
-    DefaultImplementation.new(*args).translate
+  def self.translate(...)
+    DefaultImplementation.new(...).translate
   end
 
   # This is intended for convenience debugging purposes
-  def self.compile(*args)
-    eval("-> (locals = {}) { #{translate(*args)} }")
+  def self.compile(...)
+    eval("-> (locals = {}) { #{translate(...)} }")
   end
 end
