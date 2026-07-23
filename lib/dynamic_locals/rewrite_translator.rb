@@ -120,6 +120,9 @@ module DynamicLocals
       elsif Prism::MultiWriteNode === node
         shadow_multi_write(node, scopes)
         child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+      elsif Prism::MatchWriteNode === node
+        shadow_match_write(node, scopes)
+        find_replacements(node.call, scopes)
       elsif Prism::RescueNode === node
         shadow_rescue_reference(node, scopes)
         child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
@@ -261,6 +264,27 @@ module DynamicLocals
         # instead so the side effect isn't repeated.
         [discard_name.to_s, false]
       end
+    end
+
+    # `/(?<word>...)/ =~ str` assigns its named captures as locals. It's an
+    # expression (often a condition), so sync the shadows inside a wrapper that
+    # preserves the match result:
+    # `(tmp = (re =~ str); word_local = word; tmp)`
+    def shadow_match_write(node, scopes)
+      names = node.targets.filter_map do |target|
+        next unless Prism::LocalVariableTargetNode === target
+        target.name if shadow_binding?(target.name, target.depth, scopes)
+      end
+      return if names.empty?
+
+      temp = match_temp_name
+      syncs = names.map { |name| "#{shadow_name(name)} = #{name}" }.join("; ")
+      @rewriter.insert_before(node, "(#{temp} = (")
+      @rewriter.insert_after(node, "); #{syncs}; #{temp})")
+    end
+
+    def match_temp_name
+      @match_temp_name ||= generate_hygienic_name("__dynamic_locals_match")
     end
 
     # `rescue => e` has no expression form to wrap, so sync the shadow as the

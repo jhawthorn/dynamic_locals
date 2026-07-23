@@ -389,6 +389,45 @@ module CommonBehaviour
     assert_equal [2], eval_with_locals(src, { one: 1, v: 9 })
   end
 
+  def test_regexp_named_capture_in_block
+    src = '["hi"].map { |s| /(?<word>\w+)/ =~ s; word }'
+    assert_equal ["hi"], eval_with_locals(src)
+    assert_equal ["hi"], eval_with_locals(src, { word: :outer })
+  end
+
+  def test_regexp_named_capture_in_block_captures_supplied_dynamic_outer_local
+    assert_equal "hi", eval_with_locals('["hi"].each { |s| /(?<word>\w+)/ =~ s }; word', { word: nil })
+  end
+
+  def test_regexp_named_capture_in_block_stays_block_local_when_omitted
+    assert_dynamic_name_error('["hi"].each { |s| /(?<word>\w+)/ =~ s }; word', name: :word)
+  end
+
+  def test_regexp_named_capture_as_condition
+    src = '["hi", "!!"].map { |s| if /(?<word>\w+)/ =~ s then word else :none end }'
+    assert_equal ["hi", :none], eval_with_locals(src)
+    assert_equal ["hi", :none], eval_with_locals(src, { word: :outer })
+  end
+
+  def test_regexp_match_expression_value_preserved
+    src = '["hi"].map { |s| idx = (/(?<word>\w+)/ =~ s); [idx, word] }.first'
+    assert_equal [0, "hi"], eval_with_locals(src)
+    assert_equal [0, "hi"], eval_with_locals(src, { idx: 9, word: :outer })
+  end
+
+  def test_regexp_named_capture_at_root
+    src = '/(?<word>\w+)/ =~ str; word'
+    assert_equal "hi", eval_with_locals(src, { str: "hi" })
+    assert_equal "hi", eval_with_locals(src, { str: "hi", word: :outer })
+    assert_nil eval_with_locals(src, { str: "!!" })
+  end
+
+  def test_regexp_named_capture_at_root_with_block_assignment
+    src = '1.times { word = :from_block }; /(?<word>\w+)/ =~ str; word'
+    assert_equal "hi", eval_with_locals(src, { str: "hi" })
+    assert_equal "hi", eval_with_locals(src, { str: "hi", word: :outer })
+  end
+
   def test_block_local_keeps_per_activation_binding_across_reentrancy
     src = "f = ->(n) { x = n; f.(n - 1) if n > 0; x }; f.(3)"
 
