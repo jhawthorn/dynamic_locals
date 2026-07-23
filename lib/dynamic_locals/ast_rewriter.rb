@@ -53,7 +53,6 @@ module DynamicLocals
       end
       src.force_encoding(original_src.encoding)
     end
-    alias_method :src, :modified_src
 
     def insert_before(node, src)
       raise TypeError unless Prism::Node === node

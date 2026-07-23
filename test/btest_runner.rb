@@ -47,7 +47,6 @@ module BTest
   TIMEOUT     = Integer(ENV.fetch("BTEST_TIMEOUT", "10"))
   STRATEGY    = ENV.fetch("STRATEGY", "keywords").to_sym
   METHOD_NAME = :__dynamic_locals_btest__
-  REST_KW     = :__dynamic_locals_unused_keywords
 
   Result = Struct.new(:stdout, :stderr, :status, :timeout, keyword_init: true) do
     # "ok" == a clean exit, the way btest treats a successful run.
@@ -207,13 +206,7 @@ module BTest
 
     def translated_method_def
       translator = DynamicLocals::RewriteTranslator.new(@a.src, lookup_strategy: STRATEGY)
-      params =
-        if STRATEGY == :keywords
-          translator.keyword_parameters(rest: REST_KW)
-        else
-          "#{translator.locals_hash} = {}"
-        end
-      "def #{METHOD_NAME}(#{params})\n#{translator.translate}\nend"
+      translator.to_s(METHOD_NAME)
     end
 
     def baseline_method_def

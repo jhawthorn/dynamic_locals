@@ -3,8 +3,12 @@ require "dynamic_locals/ast_rewriter"
 
 module DynamicLocals
   class RewriteTranslator < BaseTranslator
-    def initialize(*args, **kwargs)
-      super(*args, **kwargs)
+    def initialize(...)
+      super
+
+      unless [:hash, :keywords].include?(lookup_strategy)
+        raise ArgumentError, "unknown lookup strategy: #{lookup_strategy.inspect}"
+      end
 
       @rewriter = ASTRewriter.new(original_src)
 
@@ -17,17 +21,17 @@ module DynamicLocals
       @shadowed_locals = []
       @shadow_names = {}
       @generated_names = []
+      @scope_parameter_names = {}
       collect_dynamic_locals(root)
-      dynamic_locals.each { |local| keyword_unset_flag(local) } if lookup_strategy == :keywords
+      @dynamic_locals = @dynamic_locals.sort.uniq
+      dynamic_locals.each { |local| keyword_unset_flag(local) } if keywords?
       find_replacements(root, [:root])
     end
 
-    def dynamic_locals
-      @dynamic_locals.sort.uniq
-    end
+    attr_reader :dynamic_locals
 
     def keyword_parameters(rest: nil)
-      return "locals = {}" unless lookup_strategy == :keywords
+      return "#{locals_hash} = {}" unless keywords?
       params = dynamic_locals.map do |local|
         "#{local}: (#{keyword_unset_flag(local)} = true; nil)"
       end
@@ -147,7 +151,6 @@ module DynamicLocals
     end
 
     def scope_parameter_names(scope)
-      @scope_parameter_names ||= {}
       @scope_parameter_names[scope] ||= parameter_names(scope.parameters)
     end
 
@@ -184,13 +187,10 @@ module DynamicLocals
     # otherwise. Needed even for method-level bindings: when the local is
     # unset, the double-write leaves garbage in the kwarg.
     def shadow_read_src(name)
-      case lookup_strategy
-      when :hash
-        "(#{locals_hash}.key?(#{name.inspect}) ? #{name} : #{shadow_name(name)})"
-      when :keywords
+      if keywords?
         "(#{keyword_unset_flag(name)} ? #{shadow_name(name)} : #{name})"
       else
-        raise ArgumentError, "unknown lookup strategy: #{lookup_strategy.inspect}"
+        "(#{locals_hash}.key?(#{name.inspect}) ? #{name} : #{shadow_name(name)})"
       end
     end
 
@@ -295,11 +295,7 @@ module DynamicLocals
       return unless shadow_binding?(reference.name, reference.depth, scopes)
 
       sync = "#{shadow_name(reference.name)} = #{reference.name}"
-      if (first = node.statements&.body&.first)
-        @rewriter.insert_before(first, "#{sync}; ")
-      elsif node.respond_to?(:then_keyword_loc) && node.then_keyword_loc
-        @rewriter.insert_at(node.then_keyword_loc.end_offset, " #{sync};")
-      else
+      insert_at_body_start(node, node.then_keyword_loc, sync) do
         @rewriter.insert_after(reference, "; #{sync}")
       end
     end
@@ -314,12 +310,22 @@ module DynamicLocals
       return if names.empty?
 
       sync = names.map { |name| "#{shadow_name(name)} = #{name}" }.join("; ")
-      if (first = node.statements&.body&.first)
-        @rewriter.insert_before(first, "#{sync}; ")
-      elsif node.do_keyword_loc
-        @rewriter.insert_at(node.do_keyword_loc.end_offset, " #{sync};")
-      else
+      insert_at_body_start(node, node.do_keyword_loc, sync) do
         @rewriter.insert_at(node.collection.location.end_offset, " do #{sync}")
+      end
+    end
+
+    # Insert +src+ as the first statement of +node+'s body. An empty body has
+    # no statement to insert before, so it goes after +keyword_loc+ (the
+    # node's `then`/`do`) instead; when that is also absent, yields to let the
+    # caller pick a spot.
+    def insert_at_body_start(node, keyword_loc, src)
+      if (first = node.statements&.body&.first)
+        @rewriter.insert_before(first, "#{src}; ")
+      elsif keyword_loc
+        @rewriter.insert_at(keyword_loc.end_offset, " #{src};")
+      else
+        yield
       end
     end
 
@@ -340,55 +346,37 @@ module DynamicLocals
     end
 
     def initialize_local_table
+      return "" if keywords?
       @local_table.sort.uniq.map do |local|
-        case lookup_strategy
-        when :hash
-          "#{local} = #{locals_hash}[#{local.inspect}];"
-        when :keywords
-          ""
-        else
-          raise ArgumentError, "unknown lookup strategy: #{lookup_strategy.inspect}"
-        end
+        "#{local} = #{locals_hash}[#{local.inspect}];"
       end.join
     end
 
     def local_lookup_src(name, fallback)
-      case lookup_strategy
-      when :hash
-        if @local_table.include?(name)
-          "(#{locals_hash}.key?(#{name.inspect}) ? #{name} : #{fallback})"
-        else
-          "#{locals_hash}.fetch(#{name.inspect}){ #{fallback} }"
-        end
-      when :keywords
+      if keywords?
         "(#{keyword_unset_flag(name)} ? #{name}() : #{name})"
+      elsif @local_table.include?(name)
+        "(#{locals_hash}.key?(#{name.inspect}) ? #{name} : #{fallback})"
       else
-        raise ArgumentError, "unknown lookup strategy: #{lookup_strategy.inspect}"
+        "#{locals_hash}.fetch(#{name.inspect}){ #{fallback} }"
       end
     end
 
     def defined_lookup_src(name)
-      case lookup_strategy
-      when :hash
-        "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}()))"
-      when :keywords
+      if keywords?
         "(#{keyword_unset_flag(name)} ? defined?(#{name}()) : 'local-variable'.freeze)"
       else
-        raise ArgumentError, "unknown lookup strategy: #{lookup_strategy.inspect}"
+        "(#{locals_hash}.key?(#{name.inspect}) ? 'local-variable'.freeze : defined?(#{name}()))"
       end
     end
 
     def keyword_unset_flag(name)
-      @keyword_unset_flags[name] ||= begin
-        index = @keyword_unset_flags.length
-        temp = :"__dynamic_locals_unset_#{index}"
-        reserved = dynamic_locals + @keyword_unset_flags.values + @generated_names
-        while reserved.include?(temp)
-          index += 1
-          temp = :"__dynamic_locals_unset_#{index}"
-        end
-        temp
-      end
+      @keyword_unset_flags[name] ||=
+        generate_hygienic_name("__dynamic_locals_unset_#{@keyword_unset_flags.length}")
+    end
+
+    def keywords?
+      lookup_strategy == :keywords
     end
 
     def nested_local_table(node)
