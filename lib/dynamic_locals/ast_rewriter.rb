@@ -7,17 +7,28 @@ module DynamicLocals
     # an implicit begin/rescue (`raise; rescue; ...`). Parsing it as a standalone
     # program rejects those, so we parse it wrapped in a method definition and
     # then map node offsets back onto the original (unwrapped) source.
-    WRAPPER_PREFIX = "def __dynamic_locals_parse_wrapper__\n"
+    WRAPPER_NAME = "__dynamic_locals_parse_wrapper__"
+    WRAPPER_PREFIX = "def #{WRAPPER_NAME}\n"
     WRAPPER_SUFFIX = "\nend"
 
     def initialize(source)
       @original_src = source.dup.freeze
-      @offset = WRAPPER_PREFIX.bytesize
 
-      wrapped = "#{WRAPPER_PREFIX}#{@original_src}#{WRAPPER_SUFFIX}"
-      result = Prism.parse(wrapped)
+      result, prefix = parse_with_locals([])
+      errors = result.errors.reject { |error| error.type == :no_local_variable }
+      raise SyntaxError, errors.map(&:message).join("\n") if errors.any?
+
+      # A pin such as `^foo` reports :no_local_variable when `foo` will only be
+      # supplied dynamically. Reparse with those names declared on the wrapper
+      # method; pins in blocks then resolve naturally, while a pin beyond a real
+      # scope boundary (a nested def/class/module body) remains a syntax error.
+      implicit_locals = result.errors.filter_map do |error|
+        error.location.slice.to_sym if error.type == :no_local_variable
+      end.uniq
+      result, prefix = parse_with_locals(implicit_locals) if implicit_locals.any?
       raise SyntaxError, result.errors.map(&:message).join("\n") unless result.success?
 
+      @offset = prefix.bytesize
       @def_node = result.value.statements.body.first
       @replacements = []
     end
@@ -85,6 +96,17 @@ module DynamicLocals
     end
 
     private
+
+    def parse_with_locals(locals)
+      prefix =
+        if locals.empty?
+          WRAPPER_PREFIX
+        else
+          parameters = locals.map { |local| "#{local}: nil" }.join(", ")
+          "def #{WRAPPER_NAME}(#{parameters})\n"
+        end
+      [Prism.parse("#{prefix}#{@original_src}#{WRAPPER_SUFFIX}"), prefix]
+    end
 
     # Node offsets are relative to the wrapped source; shift them back onto the
     # original source by subtracting the wrapper prefix length.
