@@ -9,7 +9,11 @@ module DynamicLocals
   # as a reference implementation.
   class EvalTranslator < BaseTranslator
     def translate
-      %{eval(#{locals_hash}.map { |k, v| "\#{k} = \#{v.inspect};" }.join + #{original_src.inspect})}
+      # `eval` compiles its argument as a standalone program, which -- unlike a
+      # method body -- has no implicit `begin`. Wrap the source in begin/end so a
+      # method-body-style implicit rescue parses.
+      body = "begin\n#{original_src}\nend"
+      %{eval(#{locals_hash}.map { |k, v| "\#{k} = \#{v.inspect};" }.join + #{body.inspect})}
     end
   end
 end

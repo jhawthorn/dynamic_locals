@@ -157,6 +157,18 @@ module CommonBehaviour
     RUBY
   end
 
+  def test_read_before_assignment
+    # Before its first assignment the name is ambiguous, so plain Ruby treats
+    # an earlier read as a method call. When the local is unset we preserve the
+    # raise, though the rewrite raises NoMethodError (from the explicit `foo()`
+    # fallback) where plain Ruby raises NameError -- NoMethodError is a
+    # NameError subclass, but the message differs (see TODO.md).
+    assert_dynamic_name_error("foo; foo = 1", name: :foo)
+    assert_dynamic_result(1, "foo; foo = 1", { foo: 99 })
+    assert_dynamic_result(:from_helper, "a = helper_value; helper_value = 1; a")
+    assert_dynamic_result(99, "a = helper_value; helper_value = 1; a", { helper_value: 99 })
+  end
+
   def test_assignment_with_existing_value
     assert_dynamic_result(123, "foo = foo + 100", { foo: 23 })
     assert_dynamic_result(123, "foo += 100", { foo: 23 })
@@ -240,6 +252,25 @@ module CommonBehaviour
 
   def test_defined_instance_variable
     assert_dynamic_result(nil, "defined?(@x)", {})
+  end
+
+  def test_defined_compound_expression_with_ambiguous_names
+    skip "pending: rewritten reads make defined? see a defined compound expression (TODO.md)"
+
+    # Unlike the operator/receiver forms above, defined? checks these forms
+    # without evaluating the inner name, so the rewritten read can't raise and
+    # the whole expression wrongly reports as defined.
+    assert_dynamic_result(nil, "defined?([*a])")
+    assert_dynamic_result("expression", "defined?([*a])", { a: [1] })
+    assert_dynamic_result(nil, "defined?(itself(*a))")
+    assert_dynamic_result("method", "defined?(itself(*a))", { a: [] })
+  end
+
+  def test_local_variables_reflection
+    skip "pending: translation artifacts are visible to local_variables (TODO.md)"
+
+    assert_dynamic_result([:x], "x = 1; local_variables.sort")
+    assert_dynamic_result([:x, :y], "x = 1; local_variables.sort", { y: 2 })
   end
 
   def test_dynamic_locals_inside_blocks
@@ -548,6 +579,30 @@ class RewriteTranslatorTest < Minitest::Test
 
   def test_keyword_lookup_strategy_absorbs_unused_keywords
     assert_equal :from_helper, eval_with_keyword_locals("helper_value", { unused: :ignored })
+  end
+
+  # Known locals are real variables that already exist in the surrounding
+  # method (e.g. its parameters). The translation must leave them alone even
+  # when the body assigns them: initializing them from the locals hash (or
+  # redeclaring them as kwargs) clobbers the caller-supplied value. This broke
+  # `def assert_infinity(a, *rest); rest = [...] if rest.empty?` and friends
+  # under the main-suite runner.
+  def test_known_locals_assigned_in_body_are_left_untouched
+    src = "rest = [dyn] if rest.empty?\nrest"
+
+    translator = Implementation.new(src, known_locals: [:rest])
+    singleton_class.class_eval("def #{RUN_METHOD}(locals, *rest)\n#{translator.translate}\nend")
+    assert_equal [1, 2], send(RUN_METHOD, {}, 1, 2)
+    assert_equal [:supplied], send(RUN_METHOD, { dyn: :supplied })
+    singleton_class.remove_method(RUN_METHOD)
+
+    translator = Implementation.new(src, lookup_strategy: :keywords, known_locals: [:rest])
+    assert_equal "dyn: (__dynamic_locals_unset_0 = true; nil)", translator.keyword_parameters
+    singleton_class.class_eval("def #{RUN_METHOD}(*rest, #{translator.keyword_parameters})\n#{translator.translate}\nend")
+    assert_equal [1, 2], send(RUN_METHOD, 1, 2)
+    assert_equal [:supplied], send(RUN_METHOD, dyn: :supplied)
+  ensure
+    singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
   end
 
   def test_keyword_lookup_strategy_keeps_binding_as_method_call

@@ -23,7 +23,10 @@ module DynamicLocals
       @generated_names = []
       @scope_parameter_names = {}
       collect_dynamic_locals(root)
-      @dynamic_locals = @dynamic_locals.sort.uniq
+      # Known locals are real variables that already exist (e.g. method
+      # parameters); they are never looked up dynamically, made into kwargs,
+      # or initialized from the locals hash.
+      @dynamic_locals = @dynamic_locals.sort.uniq - known_locals
       dynamic_locals.each { |local| keyword_unset_flag(local) } if keywords?
       find_replacements(root, [:root])
     end
@@ -177,7 +180,8 @@ module DynamicLocals
     end
 
     def reserved_name?(name)
-      @generated_names.include?(name) ||
+      known_locals.include?(name) ||
+        @generated_names.include?(name) ||
         @keyword_unset_flags.value?(name) ||
         @dynamic_locals.include?(name) ||
         original_src.match?(/\b#{Regexp.escape(name.to_s)}\b/)
@@ -347,7 +351,7 @@ module DynamicLocals
 
     def initialize_local_table
       return "" if keywords?
-      @local_table.sort.uniq.map do |local|
+      (@local_table.sort.uniq - known_locals).map do |local|
         "#{local} = #{locals_hash}[#{local.inspect}];"
       end.join
     end
