@@ -126,6 +126,16 @@ module DynamicLocals
         shadow_rescue_reference(node, scopes)
       elsif Prism::ForNode === node
         shadow_for_index(node, scopes)
+      elsif Prism::MatchRequiredNode === node
+        shadow_required_pattern(node, scopes)
+      elsif Prism::MatchPredicateNode === node
+        shadow_predicate_pattern(node, scopes)
+      elsif Prism::InNode === node
+        # This branch owns its recursion: guard syncs must be registered
+        # around the predicate's own rewrites (see shadow_in_clause).
+        return shadow_in_clause(node, scopes) do
+          child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+        end
       end
 
       child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
@@ -308,6 +318,70 @@ module DynamicLocals
       insert_at_body_start(node, node.do_keyword_loc, sync) do
         @rewriter.insert_at(node.collection.location.end_offset, " do #{sync}")
       end
+    end
+
+    # `expr => pattern` raises on mismatch, so on any fall-through the targets
+    # were assigned; sync unconditionally, preserving the expression's value:
+    # `begin tmp = (expr); tmp => pattern; x_local = x; tmp end`
+    def shadow_required_pattern(node, scopes)
+      names = shadow_pattern_names(node.pattern, scopes)
+      return if names.empty?
+
+      result = generate_hygienic_name("__dynamic_locals_pattern_result")
+      @rewriter.insert_before(node, "begin #{result} = (")
+      @rewriter.insert_after(node.value, "); #{result}")
+      @rewriter.insert_after(node, "; #{shadow_sync_src(names)}; #{result} end")
+    end
+
+    # `expr in pattern` is a boolean; sync only when it matched:
+    # `(begin tmp = (expr in pattern); x_local = x if tmp; tmp end)`
+    def shadow_predicate_pattern(node, scopes)
+      names = shadow_pattern_names(node.pattern, scopes)
+      return if names.empty?
+
+      result = generate_hygienic_name("__dynamic_locals_pattern_result")
+      @rewriter.insert_before(node, "(begin #{result} = (")
+      @rewriter.insert_after(
+        node,
+        "); #{shadow_sync_src(names)} if #{result}; #{result} end)",
+      )
+    end
+
+    # A `case/in` clause's targets are assigned once its pattern matches, even
+    # if a guard then rejects it, so sync at the start of the clause body -- or
+    # inside the guard itself, which can already read the captures.
+    def shadow_in_clause(node, scopes)
+      guard = node.pattern if Prism::IfNode === node.pattern || Prism::UnlessNode === node.pattern
+      pattern = guard ? guard.statements : node.pattern
+      names = shadow_pattern_names(pattern, scopes)
+      return yield if names.empty?
+
+      sync = shadow_sync_src(names)
+      if guard
+        predicate = guard.predicate
+        # Register the closing insertion after rewriting the predicate so a
+        # nested pattern wrapper closes before this guard wrapper.
+        @rewriter.insert_before(predicate, "(begin #{sync}; ")
+        yield
+        @rewriter.insert_after(predicate, " end)")
+      else
+        insert_at_body_start(node, node.then_loc, sync) do
+          @rewriter.insert_after(node.pattern, "; #{sync};")
+        end
+        yield
+      end
+    end
+
+    def shadow_pattern_names(pattern, scopes)
+      names = []
+      each_local_target(pattern) do |target|
+        names << target.name if shadow_binding?(target.name, target.depth, scopes)
+      end
+      names.uniq
+    end
+
+    def shadow_sync_src(names)
+      names.map { |name| "#{shadow_name(name)} = #{name}" }.join("; ")
     end
 
     # Insert +src+ as the first statement of +node+'s body. An empty body has
