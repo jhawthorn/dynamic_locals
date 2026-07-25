@@ -501,10 +501,24 @@ module CommonBehaviour
     assert_match(/undefined local variable or method [`']foo['`]/, ex.message)
   end
 
+  # `binding` is an ordinary ambiguous name: supplied it reads the local like
+  # any other, unsupplied it falls back to Kernel#binding. (What the returned
+  # Binding can see is strategy-dependent -- see TODO.md, reflective methods.)
   def test_binding
-    assert_dynamic_result(true, "binding.local_variables.include?(:foo)", { foo: 123 })
-    assert_dynamic_result(123, "binding.local_variable_get(:foo)", { foo: 123 })
-    assert_dynamic_result(123, "binding.eval('foo')", { foo: 123 })
+    assert_instance_of Binding, eval_with_locals("binding", { foo: 123 })
+    assert_dynamic_result(5, "binding", { binding: 5 })
+  end
+
+  def test_binding_sees_current_values_of_assigned_locals
+    assert_dynamic_result(1, "x = 1; binding.local_variable_get(:x)", { x: 99 })
+    assert_dynamic_result(1, "x = 1; binding; x", { x: 99 })
+  end
+
+  def test_defined_binding
+    assert_dynamic_result("method", "defined?(binding)")
+    assert_dynamic_result("local-variable", "defined?(binding)", { binding: 5 })
+    # defined?(binding) must not make later uses stop reaching Kernel#binding.
+    assert_dynamic_result(true, "defined?(binding); binding.is_a?(Binding)")
   end
 
   def test_raises_nameerror
@@ -524,6 +538,14 @@ end
 class EvalTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::EvalTranslator
+
+  # Only the eval strategy materializes supplied locals as real frame locals,
+  # so only its Kernel#binding can reflect ones the body never names.
+  def test_binding_reflects_supplied_locals
+    assert_dynamic_result(true, "binding.local_variables.include?(:foo)", { foo: 123 })
+    assert_dynamic_result(123, "binding.local_variable_get(:foo)", { foo: 123 })
+    assert_dynamic_result(123, "binding.eval('foo')", { foo: 123 })
+  end
 end
 
 class RewriteTranslatorTest < Minitest::Test
@@ -583,14 +605,4 @@ class KeywordRewriteTranslatorTest < Minitest::Test
     assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil), **rest", translator.keyword_parameters(rest: :rest)
   end
 
-  def test_keeps_binding_as_method_call
-    translator = Implementation.new("binding", **translator_options)
-
-    assert_equal "", translator.keyword_parameters
-    assert_instance_of Binding, eval_with_locals("binding")
-  end
-
-  def test_binding
-    assert_instance_of Binding, eval_with_locals("binding", { foo: 123 })
-  end
 end

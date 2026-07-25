@@ -76,8 +76,6 @@ module DynamicLocals
         child_nodes_for_method_body(node).each { |child| collect_dynamic_locals(child) }
       elsif defined_variable_call?(node)
         @dynamic_locals << node.value.name
-      elsif binding_call?(node)
-        # Keep Kernel#binding as a method call; it is not a dynamic local.
       elsif variable_call?(node)
         @dynamic_locals << node.name
       else
@@ -100,15 +98,6 @@ module DynamicLocals
         # `defined?` of a real local is 'local-variable' whether the name was
         # supplied or shadow-assigned, so leave it alone. Rewriting the read
         # into a guarded expression would change the answer to 'expression'.
-        return
-      elsif binding_call?(node)
-        # The keyword strategy already has real local variables for known
-        # locals, so there Kernel#binding stays a normal method call.
-        if lookup_strategy == :hash
-          # Assumes binding isn't a local and isn't overridden
-          replacement = "(_binding = binding; #{locals_hash}.each { |k,v| _binding.local_variable_set(k, v) }; _binding)"
-          @rewriter.replace node, replacement
-        end
         return
       elsif variable_call?(node)
         name = node.name
@@ -431,10 +420,6 @@ module DynamicLocals
 
     def variable_call?(node)
       Prism::CallNode === node && node.variable_call? && !known_locals.include?(node.name)
-    end
-
-    def binding_call?(node)
-      variable_call?(node) && node.name == :binding
     end
 
     def defined_variable_call?(node)
