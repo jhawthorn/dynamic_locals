@@ -13,11 +13,16 @@ module DynamicLocals
       raise NotImplementedError
     end
 
-    # Wrap the translated body in a method definition. The default shape passes
-    # the locals as a single hash argument; strategies that use real parameters
-    # (see RewriteTranslator's keyword strategy) override this.
+    # The parameter list that pairs with the translated body. The default shape
+    # takes the locals as a single hash argument; strategies that use real
+    # parameters (see RewriteTranslator's keyword strategy) override this.
+    def parameters
+      "#{locals_hash} = {}"
+    end
+
+    # Wrap the translated body in a method definition.
     def to_s(name = "__dynamic_locals__")
-      "def #{name}(#{locals_hash} = {})\n#{translate}\nend"
+      "def #{name}(#{parameters})\n#{translate}\nend"
     end
   end
 end

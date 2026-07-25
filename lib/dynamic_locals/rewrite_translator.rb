@@ -50,11 +50,10 @@ module DynamicLocals
       "#{initialize}#{src}"
     end
 
-    def to_s(name = "__dynamic_locals__")
-      # In the keyword strategy the locals are real parameters; absorb any
-      # unsupplied-but-passed keys so callers can splat an arbitrary hash.
-      params = keyword_parameters(rest: :__dynamic_locals_unused_keywords)
-      "def #{name}(#{params})\n#{translate}\nend"
+    # In the keyword strategy the locals are real parameters; absorb any
+    # unsupplied-but-passed keys so callers can splat an arbitrary hash.
+    def parameters
+      keyword_parameters(rest: :__dynamic_locals_unused_keywords)
     end
 
     private
@@ -86,59 +85,61 @@ module DynamicLocals
       end
     end
 
+    # Leaf branches replace a node (or deliberately leave it alone) and return;
+    # write branches recurse only into their value; everything else falls
+    # through to the generic recursion at the bottom.
     def find_replacements(node, scopes)
       return unless Prism::Node === node
 
       if nested_scope?(node)
-        inner = scopes + [node]
-        child_nodes_for_method_body(node).each { |child| find_replacements(child, inner) }
+        scopes += [node]
       elsif defined_variable_call?(node)
-        name = node.value.name
-        replacement = defined_lookup_src(name)
-        @rewriter.replace node, replacement
+        @rewriter.replace node, defined_lookup_src(node.value.name)
+        return
       elsif Prism::DefinedNode === node && Prism::LocalVariableReadNode === node.value
         # `defined?` of a real local is 'local-variable' whether the name was
         # supplied or shadow-assigned, so leave it alone. Rewriting the read
         # into a guarded expression would change the answer to 'expression'.
-      elsif binding_call?(node) && lookup_strategy == :hash
-        # Assumes binding isn't a local and isn't overridden
-        replacement = "(_binding = binding; #{locals_hash}.each { |k,v| _binding.local_variable_set(k, v) }; _binding)"
-        @rewriter.replace node, replacement
+        return
       elsif binding_call?(node)
-        # The keyword strategy already has real local variables for known locals,
-        # so leave Kernel#binding as a normal method call.
+        # The keyword strategy already has real local variables for known
+        # locals, so there Kernel#binding stays a normal method call.
+        if lookup_strategy == :hash
+          # Assumes binding isn't a local and isn't overridden
+          replacement = "(_binding = binding; #{locals_hash}.each { |k,v| _binding.local_variable_set(k, v) }; _binding)"
+          @rewriter.replace node, replacement
+        end
+        return
       elsif variable_call?(node)
         name = node.name
         fallback = @local_table.include?(name) ? "#{name}()" : name.to_s
-        replacement = local_lookup_src(name, fallback)
-        @rewriter.replace node, replacement
+        @rewriter.replace node, local_lookup_src(name, fallback)
+        return
       elsif Prism::LocalVariableReadNode === node
         if shadow_binding?(node.name, node.depth, scopes)
           @rewriter.replace node, shadow_read_src(node.name)
         end
+        return
       elsif Prism::LocalVariableWriteNode === node
         if shadow_binding?(node.name, node.depth, scopes)
           @rewriter.insert_before(node, "#{shadow_name(node.name)} = ")
         end
-        find_replacements(node.value, scopes)
+        return find_replacements(node.value, scopes)
       elsif local_operator_write?(node)
         expand_operator_write(node, scopes) if shadow_binding?(node.name, node.depth, scopes)
-        find_replacements(node.value, scopes)
-      elsif Prism::MultiWriteNode === node
-        shadow_multi_write(node, scopes)
-        child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
+        return find_replacements(node.value, scopes)
       elsif Prism::MatchWriteNode === node
         shadow_match_write(node, scopes)
-        find_replacements(node.call, scopes)
+        return find_replacements(node.call, scopes)
+      elsif Prism::MultiWriteNode === node
+        shadow_multi_write(node, scopes)
       elsif Prism::RescueNode === node
         shadow_rescue_reference(node, scopes)
-        child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
       elsif Prism::ForNode === node
         shadow_for_index(node, scopes)
-        child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
-      else
-        child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
       end
+
+      child_nodes_for_method_body(node).each { |child| find_replacements(child, scopes) }
     end
 
     # True when a read/write of +name+ resolves to a binding that was declared
@@ -180,9 +181,10 @@ module DynamicLocals
     end
 
     def reserved_name?(name)
+      # The regex alone can't cover dynamic locals: \b fails around non-word
+      # names like emoji identifiers.
       known_locals.include?(name) ||
         @generated_names.include?(name) ||
-        @keyword_unset_flags.value?(name) ||
         @dynamic_locals.include?(name) ||
         original_src.match?(/\b#{Regexp.escape(name.to_s)}\b/)
     end

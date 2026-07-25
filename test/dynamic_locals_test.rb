@@ -76,6 +76,9 @@ module CommonBehaviour
   def test_bare_read_matrix
     assert_dynamic_result(:from_local, "helper_value", { helper_value: :from_local })
     assert_dynamic_result(:from_helper, "helper_value", {})
+    # Locals the body never mentions must be tolerated (the keyword strategy
+    # absorbs them via a rest parameter).
+    assert_dynamic_result(:from_helper, "helper_value", { unused: :ignored })
     assert_dynamic_name_error("missing_value", name: :missing_value)
   end
 
@@ -222,6 +225,7 @@ module CommonBehaviour
 
   def test_defined_matrix
     assert_dynamic_result("local-variable", "defined?(helper_value)", { helper_value: :from_local })
+    assert_dynamic_result("local-variable", "defined?(helper_value)", { helper_value: nil })
     assert_dynamic_result("method", "defined?(helper_value)", {})
     assert_dynamic_result(nil, "defined?(missing_value)", {})
     assert_dynamic_result(nil, "result = defined?(assigned_later); assigned_later = 1; result", {})
@@ -467,8 +471,8 @@ module CommonBehaviour
     assert_equal 0, eval_with_locals(src, { x: 99 })
 
     # When `x` is omitted it is block-local, so each activation gets its own `x`
-    # and the outer call still reads its own 3. The rewrite strategy hoists `x`
-    # into one shared local, so the recursion clobbers it and it wrongly reads 0.
+    # and the outer call still reads its own 3. The shadow is assigned inside
+    # the lambda, so it too gets a fresh binding per activation.
     assert_equal 3, eval_with_locals(src)
   end
 
@@ -526,14 +530,6 @@ class RewriteTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::RewriteTranslator
 
-  def eval_with_keyword_locals(src, locals={})
-    translator = Implementation.new(src, lookup_strategy: :keywords)
-    singleton_class.class_eval(translator.to_s(RUN_METHOD))
-    send(RUN_METHOD, **locals)
-  ensure
-    singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
-  end
-
   def test_syntax_errors_are_raised_at_translate_time
     assert_raises(SyntaxError) do
       Implementation.new("def").translate
@@ -544,41 +540,6 @@ class RewriteTranslatorTest < Minitest::Test
     dynamic = Implementation.new("foo + bar", locals_hash: :view_locals).translate
 
     assert_equal 5, eval("view_locals = { foo: 2, bar: 3 }; #{dynamic}")
-  end
-
-  def test_keyword_lookup_strategy_parameters
-    translator = Implementation.new("foo + bar", lookup_strategy: :keywords)
-
-    assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil)", translator.keyword_parameters
-    assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil), **rest", translator.keyword_parameters(rest: :rest)
-  end
-
-  def test_keyword_lookup_strategy_bare_reads
-    assert_equal :from_local, eval_with_keyword_locals("helper_value", { helper_value: :from_local })
-    assert_equal :from_helper, eval_with_keyword_locals("helper_value")
-  end
-
-  def test_keyword_lookup_strategy_or_assignment
-    assert_equal :existing, eval_with_keyword_locals("foo ||= missing_value; foo", { foo: :existing })
-    assert_equal :from_default_helper, eval_with_keyword_locals("foo ||= default_value; foo")
-    assert_equal :from_default_helper, eval_with_keyword_locals("foo ||= default_value; foo", { foo: nil })
-    assert_equal :from_default_local, eval_with_keyword_locals("foo ||= default_value; foo", { default_value: :from_default_local })
-  end
-
-  def test_keyword_lookup_strategy_defined
-    assert_equal "local-variable", eval_with_keyword_locals("defined?(helper_value)", { helper_value: :from_local })
-    assert_equal "local-variable", eval_with_keyword_locals("defined?(helper_value)", { helper_value: nil })
-    assert_equal "method", eval_with_keyword_locals("defined?(helper_value)")
-    assert_nil eval_with_keyword_locals("defined?(missing_value)")
-  end
-
-  def test_keyword_lookup_strategy_assigned_local_initialization
-    assert_equal 6, eval_with_keyword_locals("foo = foo + numeric_value; foo", { foo: 1, numeric_value: 5 })
-    assert_equal :from_default_helper, eval_with_keyword_locals("helper_value ||= default_value; helper_value")
-  end
-
-  def test_keyword_lookup_strategy_absorbs_unused_keywords
-    assert_equal :from_helper, eval_with_keyword_locals("helper_value", { unused: :ignored })
   end
 
   # Known locals are real variables that already exist in the surrounding
@@ -605,12 +566,6 @@ class RewriteTranslatorTest < Minitest::Test
     singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
   end
 
-  def test_keyword_lookup_strategy_keeps_binding_as_method_call
-    translator = Implementation.new("binding", lookup_strategy: :keywords)
-
-    assert_equal "", translator.keyword_parameters
-    assert_instance_of Binding, eval_with_keyword_locals("binding")
-  end
 end
 
 class KeywordRewriteTranslatorTest < Minitest::Test
@@ -619,6 +574,20 @@ class KeywordRewriteTranslatorTest < Minitest::Test
 
   def translator_options
     { lookup_strategy: :keywords }
+  end
+
+  def test_keyword_parameters
+    translator = Implementation.new("foo + bar", **translator_options)
+
+    assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil)", translator.keyword_parameters
+    assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil), **rest", translator.keyword_parameters(rest: :rest)
+  end
+
+  def test_keeps_binding_as_method_call
+    translator = Implementation.new("binding", **translator_options)
+
+    assert_equal "", translator.keyword_parameters
+    assert_instance_of Binding, eval_with_locals("binding")
   end
 
   def test_binding
