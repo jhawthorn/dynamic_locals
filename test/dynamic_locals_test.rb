@@ -7,28 +7,17 @@ class DynamicLocalsTest < Minitest::Test
 end
 
 module CommonBehaviour
-  # Name of the throwaway method each translated body is compiled into.
   RUN_METHOD = :__dynamic_locals_run
 
-  # Overridden by test classes that need a non-default translator (e.g. the
-  # keyword lookup strategy).
   def translator_options
     {}
   end
 
   def eval_with_locals(src, locals={})
     translator = self.class::Implementation.new(src, **translator_options)
-    # The translated source is a method body (see README), so run it as one.
-    # Defining it on the test's singleton keeps `self` as the test instance, so
-    # helper methods still resolve, while method-body-only syntax (an implicit
-    # rescue, yield, a top-level return) parses correctly. The translator owns
-    # its own signature (a `locals` hash vs. keyword params), so build the whole
-    # `def` from it and splat the locals in a way that fits either shape.
     singleton_class.class_eval(translator.to_s(RUN_METHOD))
     send(RUN_METHOD, **locals)
   ensure
-    # Building the method may raise (e.g. a SyntaxError from `translate`); only
-    # remove it when it was defined, and let the original error propagate.
     singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
   end
 
@@ -76,8 +65,6 @@ module CommonBehaviour
   def test_bare_read_matrix
     assert_dynamic_result(:from_local, "helper_value", { helper_value: :from_local })
     assert_dynamic_result(:from_helper, "helper_value", {})
-    # Locals the body never mentions must be tolerated (the keyword strategy
-    # absorbs them via a rest parameter).
     assert_dynamic_result(:from_helper, "helper_value", { unused: :ignored })
     assert_dynamic_name_error("missing_value", name: :missing_value)
   end
@@ -161,11 +148,8 @@ module CommonBehaviour
   end
 
   def test_read_before_assignment
-    # Before its first assignment the name is ambiguous, so plain Ruby treats
-    # an earlier read as a method call. When the local is unset we preserve the
-    # raise, though the rewrite raises NoMethodError (from the explicit `foo()`
-    # fallback) where plain Ruby raises NameError -- NoMethodError is a
-    # NameError subclass, but the message differs (see TODO.md).
+    # Intentional divergence: the rewrite raises NoMethodError here where plain
+    # Ruby raises NameError.
     assert_dynamic_name_error("foo; foo = 1", name: :foo)
     assert_dynamic_result(1, "foo; foo = 1", { foo: 99 })
     assert_dynamic_result(:from_helper, "a = helper_value; helper_value = 1; a")
@@ -244,7 +228,6 @@ module CommonBehaviour
 
   def test_defined_assignment_expression
     assert_dynamic_result("assignment", "defined?(foo = 1)", {})
-    # defined? does not evaluate its operand, so the assignment never runs.
     assert_dynamic_result(nil, "defined?(foo = 1); foo", {})
   end
 
@@ -259,11 +242,8 @@ module CommonBehaviour
   end
 
   def test_defined_compound_expression_with_ambiguous_names
-    skip "pending: rewritten reads make defined? see a defined compound expression (TODO.md)"
+    skip "pending: rewritten reads make defined? see a defined compound expression"
 
-    # Unlike the operator/receiver forms above, defined? checks these forms
-    # without evaluating the inner name, so the rewritten read can't raise and
-    # the whole expression wrongly reports as defined.
     assert_dynamic_result(nil, "defined?([*a])")
     assert_dynamic_result("expression", "defined?([*a])", { a: [1] })
     assert_dynamic_result(nil, "defined?(itself(*a))")
@@ -271,7 +251,7 @@ module CommonBehaviour
   end
 
   def test_local_variables_reflection
-    skip "pending: translation artifacts are visible to local_variables (TODO.md)"
+    skip "pending: translation artifacts are visible to local_variables"
 
     assert_dynamic_result([:x], "x = 1; local_variables.sort")
     assert_dynamic_result([:x, :y], "x = 1; local_variables.sort", { y: 2 })
@@ -339,26 +319,16 @@ module CommonBehaviour
   def test_block_only_assignment_gets_fresh_binding_per_invocation
     src = "[1, 2, 3].map { |x| v = x; -> { v } }.map(&:call)"
 
-    # When `v` is a supplied local it is a single outer variable shared by every
-    # block invocation, so all the escaping closures read the same final value.
     assert_equal [3, 3, 3], eval_with_locals(src, { v: 0 })
-
-    # When `v` is omitted it is block-local: each invocation gets a fresh binding
-    # and each closure captures its own value.
     assert_equal [1, 2, 3], eval_with_locals(src)
   end
 
   def test_block_assignment_stays_block_local_when_outer_assignment_is_later
     src = "1.times { x = 1 }\nx = 5 if false\nx"
 
-    # When `x` is supplied it is an outer local, so `x = 1` inside the block
-    # captures it and the trailing `x` reads 1.
     assert_equal 1, eval_with_locals(src, { x: 99 })
-
-    # When `x` is omitted, scoping is decided lexically: at the point the block is
-    # parsed `x` is not yet an outer local (its only outer assignment appears
-    # later), so `x = 1` is block-local and the trailing `x` reads the method-level
-    # `x`, which stays nil because `x = 5 if false` never runs.
+    # When omitted, `x` is not yet an outer local where the block is parsed, so
+    # the assignment stays block-local and the trailing read is nil.
     assert_nil eval_with_locals(src)
   end
 
@@ -466,32 +436,19 @@ module CommonBehaviour
   def test_block_local_keeps_per_activation_binding_across_reentrancy
     src = "f = ->(n) { x = n; f.(n - 1) if n > 0; x }; f.(3)"
 
-    # When `x` is supplied it is a single shared local, so the recursive call
-    # overwrites it before the outer activation reads it back.
     assert_equal 0, eval_with_locals(src, { x: 99 })
-
-    # When `x` is omitted it is block-local, so each activation gets its own `x`
-    # and the outer call still reads its own 3. The shadow is assigned inside
-    # the lambda, so it too gets a fresh binding per activation.
     assert_equal 3, eval_with_locals(src)
   end
 
   def test_pattern_match_pin_uses_dynamic_local
-    # Prism sees the pin before the dynamic local has been declared. Translation
-    # must retain it as a local read so the generated method parameter or hash
-    # initialization can provide the binding on the final parse.
     assert_dynamic_result(:matched, "case numeric_value; in ^foo then :matched; else :no; end", { foo: 40 })
     assert_dynamic_result([:matched], "[1].map { case numeric_value; in ^foo then :matched; else :no; end }", { foo: 40 })
   end
 
   def test_pattern_capture_then_pin_in_same_clause
     skip "pending"
-    # `in a, ^a` pins the value captured earlier in the same pattern. When the
-    # case sits in a block and `a` is block-local, the pin's read is rewritten
-    # to the shadow lookup, but the shadow only syncs at the clause body --
-    # mid-pattern it doesn't exist yet, so the pin raises NameError. Found by
-    # the main-suite runner (test_pattern_matching's
-    # test_pin_operator_value_pattern).
+    # The pin reads the block-local shadow, which only syncs at the clause
+    # body, so mid-pattern it raises NameError.
     assert_dynamic_result([:matched], "[1].map { case [0, 0]; in [a, ^a] then :matched; else :no; end }")
   end
 
@@ -542,9 +499,6 @@ module CommonBehaviour
 
   def test_method_body_implicit_rescue
     skip "this is probably nonsense"
-    # The input is a method body, where a bare `rescue` is an implicit
-    # begin/rescue. Parsing the source as a standalone program rejects it, so
-    # this body cannot be translated at all.
     assert_dynamic_result(:rescued, "raise 'boom'\nrescue\n:rescued")
   end
 
@@ -556,9 +510,6 @@ module CommonBehaviour
     assert_match(/undefined local variable or method [`']foo['`]/, ex.message)
   end
 
-  # `binding` is an ordinary ambiguous name: supplied it reads the local like
-  # any other, unsupplied it falls back to Kernel#binding. (What the returned
-  # Binding can see is strategy-dependent -- see TODO.md, reflective methods.)
   def test_binding
     assert_instance_of Binding, eval_with_locals("binding", { foo: 123 })
     assert_dynamic_result(5, "binding", { binding: 5 })
@@ -572,7 +523,6 @@ module CommonBehaviour
   def test_defined_binding
     assert_dynamic_result("method", "defined?(binding)")
     assert_dynamic_result("local-variable", "defined?(binding)", { binding: 5 })
-    # defined?(binding) must not make later uses stop reaching Kernel#binding.
     assert_dynamic_result(true, "defined?(binding); binding.is_a?(Binding)")
   end
 
@@ -594,8 +544,6 @@ class EvalTranslatorTest < Minitest::Test
   include CommonBehaviour
   Implementation = DynamicLocals::EvalTranslator
 
-  # Only the eval strategy materializes supplied locals as real frame locals,
-  # so only its Kernel#binding can reflect ones the body never names.
   def test_binding_reflects_supplied_locals
     assert_dynamic_result(true, "binding.local_variables.include?(:foo)", { foo: 123 })
     assert_dynamic_result(123, "binding.local_variable_get(:foo)", { foo: 123 })
@@ -627,12 +575,6 @@ class RewriteTranslatorTest < Minitest::Test
     assert_equal 5, eval("view_locals = { foo: 2, bar: 3 }; #{dynamic}")
   end
 
-  # Known locals are real variables that already exist in the surrounding
-  # method (e.g. its parameters). The translation must leave them alone even
-  # when the body assigns them: initializing them from the locals hash (or
-  # redeclaring them as kwargs) clobbers the caller-supplied value. This broke
-  # `def assert_infinity(a, *rest); rest = [...] if rest.empty?` and friends
-  # under the main-suite runner.
   def test_known_locals_assigned_in_body_are_left_untouched
     src = "rest = [dyn] if rest.empty?\nrest"
 
