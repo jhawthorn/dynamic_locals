@@ -157,11 +157,12 @@ module DynamicLocals
       @scope_parameter_names[scope] ||= parameter_names(scope.parameters)
     end
 
-    # `x = v` => `x_local = x = v`
+    # `x = v` => `__dynamic_locals_shadow_x = x = v`
     # The kwarg keeps its real name (callers supply it), and the shadow gets a
-    # fresh block-local binding exactly where plain `x` would have.
+    # fresh block-local binding exactly where plain `x` would have. The leading
+    # underscore exempts write-only shadows from unused-variable warnings.
     def shadow_name(name)
-      @shadow_names[name] ||= generate_hygienic_name("#{name}_local")
+      @shadow_names[name] ||= generate_hygienic_name("__dynamic_locals_shadow_#{name}")
     end
 
     def discard_name
@@ -199,7 +200,7 @@ module DynamicLocals
       end
     end
 
-    # `x op= v` => `x_local = x = <guarded read> op (v)`
+    # `x op= v` => `__dynamic_locals_shadow_x = x = <guarded read> op (v)`
     # The parens around the value preserve associativity (`x -= a - b`).
     def expand_operator_write(node, scopes)
       name = node.name
@@ -214,7 +215,8 @@ module DynamicLocals
       @rewriter.insert_after(node.value, ")")
     end
 
-    # `a, b = v` => `a_local, b_local = (a, b = v)`
+    # `a, b = v` =>
+    # `__dynamic_locals_shadow_a, __dynamic_locals_shadow_b = (a, b = v)`
     # A masgn evaluates to its right-hand side, so a structurally identical
     # outer masgn assigns the same values to the shadows. Targets that don't
     # need a shadow become a discard variable (duplicates are legal).
@@ -274,7 +276,7 @@ module DynamicLocals
     # `/(?<word>...)/ =~ str` assigns its named captures as locals. It's an
     # expression (often a condition), so sync the shadows inside a wrapper that
     # preserves the match result:
-    # `(tmp = (re =~ str); word_local = word; tmp)`
+    # `(tmp = (re =~ str); __dynamic_locals_shadow_word = word; tmp)`
     def shadow_match_write(node, scopes)
       names = node.targets.filter_map do |target|
         next unless Prism::LocalVariableTargetNode === target
@@ -322,7 +324,7 @@ module DynamicLocals
 
     # `expr => pattern` raises on mismatch, so on any fall-through the targets
     # were assigned; sync unconditionally, preserving the expression's value:
-    # `begin tmp = (expr); tmp => pattern; x_local = x; tmp end`
+    # `begin tmp = (expr); tmp => pattern; __dynamic_locals_shadow_x = x; tmp end`
     def shadow_required_pattern(node, scopes)
       names = shadow_pattern_names(node.pattern, scopes)
       return if names.empty?
@@ -334,7 +336,7 @@ module DynamicLocals
     end
 
     # `expr in pattern` is a boolean; sync only when it matched:
-    # `(begin tmp = (expr in pattern); x_local = x if tmp; tmp end)`
+    # `(begin tmp = (expr in pattern); __dynamic_locals_shadow_x = x if tmp; tmp end)`
     def shadow_predicate_pattern(node, scopes)
       names = shadow_pattern_names(node.pattern, scopes)
       return if names.empty?
