@@ -13,7 +13,7 @@ module DynamicLocals
       # method body -- has no implicit `begin`. Wrap the source in begin/end so a
       # method-body-style implicit rescue parses.
       body = "begin\n#{original_src}\nend"
-      %{eval(#{locals_hash}.map { |k, v| "\#{k} = \#{v.inspect};" }.join + #{body.inspect})}
+      %{eval(#{locals_hash}.keys.map { |k| "\#{k} = #{locals_hash}[\#{k.inspect}];" }.join + #{body.inspect})}
     end
   end
 end

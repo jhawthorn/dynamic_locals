@@ -62,6 +62,21 @@ module CommonBehaviour
     assert_dynamic_result(2, "foo", { foo: 2 })
   end
 
+  def test_variable_access_preserves_object_identity
+    object = Object.new
+    assert eval_with_locals("foo", { foo: object }).equal?(object), "expected the same object, not a copy"
+  end
+
+  def test_variable_access_with_uninspectable_values
+    assert_equal Float::INFINITY, eval_with_locals("foo", { foo: Float::INFINITY })
+  end
+
+  def test_mutations_are_visible_on_the_supplied_object
+    array = []
+    eval_with_locals("foo << :mutated", { foo: array })
+    assert_equal [:mutated], array
+  end
+
   def test_bare_read_matrix
     assert_dynamic_result(:from_local, "helper_value", { helper_value: :from_local })
     assert_dynamic_result(:from_helper, "helper_value", {})
