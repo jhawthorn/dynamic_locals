@@ -513,7 +513,6 @@ module CommonBehaviour
   end
 
   def test_method_body_implicit_rescue
-    skip "this is probably nonsense"
     assert_dynamic_result(:rescued, "raise 'boom'\nrescue\n:rescued")
   end
 
