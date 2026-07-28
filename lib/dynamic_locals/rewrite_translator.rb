@@ -92,7 +92,10 @@ module DynamicLocals
       if nested_scope?(node)
         scopes += [node]
       elsif defined_variable_call?(node)
-        @rewriter.replace node, defined_lookup_src(node.value.name)
+        # A `defined?` spanning newlines must not pull later lines up;
+        # re-emit its newlines inside the parenthesized replacement.
+        newlines = "\n" * node.slice.count("\n")
+        @rewriter.replace node, "(#{defined_lookup_src(node.value.name)}#{newlines})"
         return
       elsif Prism::DefinedNode === node && Prism::LocalVariableReadNode === node.value
         # `defined?` of a real local is 'local-variable' whether the name was
@@ -201,7 +204,9 @@ module DynamicLocals
     end
 
     # `x op= v` => `__dynamic_locals_shadow_x = x = <guarded read> op (v)`
-    # The parens around the value preserve associativity (`x -= a - b`).
+    # The parens around the value preserve associativity (`x -= a - b`); any
+    # newlines between the operator and its value re-emit after the opening
+    # paren so the value keeps its line.
     def expand_operator_write(node, scopes)
       name = node.name
       op =
@@ -210,8 +215,10 @@ module DynamicLocals
         when Prism::LocalVariableAndWriteNode then "&&"
         else node.binary_operator.to_s
         end
-      prefix = "#{shadow_name(name)} = #{name} = #{shadow_read_src(name)} #{op} ("
-      @rewriter.replace_offsets(node.location.start_offset, node.value.location.start_offset, prefix)
+      value_offset = node.value.location.start_offset
+      newlines = "\n" * node.slice.byteslice(0, value_offset - node.location.start_offset).count("\n")
+      prefix = "#{shadow_name(name)} = #{name} = #{shadow_read_src(name)} #{op} (#{newlines}"
+      @rewriter.replace_offsets(node.location.start_offset, value_offset, prefix)
       @rewriter.insert_after(node.value, ")")
     end
 

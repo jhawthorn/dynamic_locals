@@ -13,7 +13,10 @@ module DynamicLocals
       # method body -- has no implicit `begin`. Wrap the source in begin/end so a
       # method-body-style implicit rescue parses.
       body = "begin\n#{original_src}\nend"
-      %{eval(#{locals_hash}.keys.map { |k| "\#{k} = #{locals_hash}[\#{k.inspect}];" }.join + #{body.inspect})}
+      # The file/line arguments make errors report the line the source would
+      # occupy had it been spliced in directly: the `begin` line lands one
+      # line above the eval call, so source line N reports as call line + N.
+      %{eval(#{locals_hash}.keys.map { |k| "\#{k} = #{locals_hash}[\#{k.inspect}];" }.join + #{body.inspect}, binding, __FILE__, __LINE__ - 1)}
     end
   end
 end

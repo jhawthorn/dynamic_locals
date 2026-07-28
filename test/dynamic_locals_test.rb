@@ -15,10 +15,16 @@ module CommonBehaviour
 
   def eval_with_locals(src, locals={})
     translator = self.class::Implementation.new(src, **translator_options)
-    singleton_class.class_eval(translator.to_s(RUN_METHOD))
+    # The `def` goes on line 0 so the body's line numbers match the original
+    # source, letting tests assert on __LINE__ directly.
+    singleton_class.class_eval(translator.to_s(RUN_METHOD), "(dynamic_locals)", 0)
     send(RUN_METHOD, **locals)
   ensure
     singleton_class.remove_method(RUN_METHOD) if singleton_class.method_defined?(RUN_METHOD)
+  end
+
+  def test_line_numbers_match_the_original_source
+    assert_dynamic_result(3, "a = foo\nb = a\n__LINE__", { foo: 1 })
   end
 
   def assert_dynamic_result(expected, src, locals={})
@@ -197,6 +203,30 @@ module CommonBehaviour
     RUBY
 
     assert_dynamic_result(12, src, { one: 1, two: 2, eight: 8 })
+  end
+
+  def test_multiline_defined
+    src = <<~RUBY
+      status = defined?(
+        foo
+      )
+      __LINE__
+    RUBY
+
+    assert_dynamic_result(4, src)
+  end
+
+  def test_multiline_operator_write_in_block
+    src = <<~RUBY
+      [5].each do |n|
+        q ||=
+          n
+        q
+      end
+      __LINE__
+    RUBY
+
+    assert_dynamic_result(6, src)
   end
 
   def test_multibyte_offsets_before_rewrite
