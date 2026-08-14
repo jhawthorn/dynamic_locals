@@ -449,8 +449,7 @@ module DynamicLocals
     end
 
     def keyword_unset_flag(name)
-      @keyword_unset_flags[name] ||=
-        generate_hygienic_name("__dynamic_locals_unset_#{@keyword_unset_flags.length}")
+      @keyword_unset_flags[name] ||= generate_hygienic_name("__dynamic_locals_unset_#{name}")
     end
 
     def keywords?

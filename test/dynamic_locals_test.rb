@@ -629,7 +629,7 @@ class RewriteTranslatorTest < Minitest::Test
     singleton_class.remove_method(RUN_METHOD)
 
     translator = Implementation.new(src, lookup_strategy: :keywords, known_locals: [:rest])
-    assert_equal "dyn: (__dynamic_locals_unset_0 = true; nil)", translator.keyword_parameters
+    assert_equal "dyn: (__dynamic_locals_unset_dyn = true; nil)", translator.keyword_parameters
     singleton_class.class_eval("def #{RUN_METHOD}(*rest, #{translator.keyword_parameters})\n#{translator.translate}\nend")
     assert_equal [1, 2], send(RUN_METHOD, 1, 2)
     assert_equal [:supplied], send(RUN_METHOD, dyn: :supplied)
@@ -650,8 +650,8 @@ class KeywordRewriteTranslatorTest < Minitest::Test
   def test_keyword_parameters
     translator = Implementation.new("foo + bar", **translator_options)
 
-    assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil)", translator.keyword_parameters
-    assert_equal "bar: (__dynamic_locals_unset_0 = true; nil), foo: (__dynamic_locals_unset_1 = true; nil), **rest", translator.keyword_parameters(rest: :rest)
+    assert_equal "bar: (__dynamic_locals_unset_bar = true; nil), foo: (__dynamic_locals_unset_foo = true; nil)", translator.keyword_parameters
+    assert_equal "bar: (__dynamic_locals_unset_bar = true; nil), foo: (__dynamic_locals_unset_foo = true; nil), **rest", translator.keyword_parameters(rest: :rest)
   end
 
 end
