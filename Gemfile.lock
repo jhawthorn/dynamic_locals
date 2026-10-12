@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    dynamic_locals (0.1.0)
+    dynamic_locals (0.2.0)
       prism (>= 1.0)
 
 GEM
