@@ -7,9 +7,9 @@ module DynamicLocals
     # an implicit begin/rescue (`raise; rescue; ...`). Parsing it as a standalone
     # program rejects those, so we parse it wrapped in a method definition and
     # then map node offsets back onto the original (unwrapped) source.
-    WRAPPER_NAME = "__dynamic_locals_parse_wrapper__"
-    WRAPPER_PREFIX = "def #{WRAPPER_NAME}\n"
-    WRAPPER_SUFFIX = "\nend"
+    WRAPPER_NAME = "__dynamic_locals_parse_wrapper__".freeze
+    WRAPPER_PREFIX = "def #{WRAPPER_NAME}\n".freeze
+    WRAPPER_SUFFIX = "\nend".freeze
 
     def initialize(source)
       @original_src = source.dup.freeze
